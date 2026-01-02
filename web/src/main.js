@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import CannonDebugger from 'cannon-es-debugger';
+import CannonDebugger from 'cannon-es-debugger'; // Visualize Physics
 import Stats from 'stats.js';
 import GUI from 'lil-gui';
 import { Player } from './Player.js';
 import { CameraController } from './CameraController.js';
 
 // --- Configuration ---
+// --- Configuration ---
 const config = {
-    debugPhysics: true,
+    debugPhysics: false, // Turn off for gameplay
 };
 
 // --- Scene & Camera ---
@@ -53,12 +54,12 @@ const defaultMaterial = new CANNON.Material('default');
 const playerMaterial = new CANNON.Material('player');
 
 const playerContactMat = new CANNON.ContactMaterial(playerMaterial, defaultMaterial, {
-    friction: 0.3,
-    restitution: 0.7, // Bouncy!
+    friction: 0.1, // Low friction for controlled sliding
+    restitution: 0.7, 
 });
 const playerPlayerMat = new CANNON.ContactMaterial(playerMaterial, playerMaterial, {
-    friction: 0.3,
-    restitution: 0.9, // Extra Bouncy on collision!
+    friction: 0.1, // Low friction for pushing without sticking
+    restitution: 0.9, 
 });
 
 world.addContactMaterial(playerContactMat);
@@ -80,15 +81,12 @@ arenaMesh.receiveShadow = true;
 scene.add(arenaMesh);
 
 // Physics
-const arenaShape = new CANNON.Cylinder(arenaRadius, arenaRadius, arenaHeight, 32);
+// Using Box for smoother sliding (Cylinder can have edge glitches)
+const arenaShape = new CANNON.Box(new CANNON.Vec3(20, 1, 20)); // Half-extents = 40x2x40 box
 const arenaBody = new CANNON.Body({
     mass: 0, // Static
     material: defaultMaterial,
 });
-// Simplify cylinder orientation for Cannon (Cannon cylinder axis is Z?)
-// Actually Cannon ES cylinder is Y-up usually, same as Three.
-// But Trimesh is safer if issues arise, but Cylinder is performant.
-// Cannon Cylinder is usually oriented such that Y is the axis.
 arenaBody.addShape(arenaShape, new CANNON.Vec3(0, 0, 0)); 
 arenaBody.position.set(0, -1, 0);
 world.addBody(arenaBody); 
@@ -123,6 +121,10 @@ function animate() {
 
     // Update Physics
     world.fixedStep(timeStep);
+    
+    if (config.debugPhysics) {
+        cannonDebugger.update(); // Update wireframes
+    }
 
     // Update Player & Dummy
     player.update(timeStep);

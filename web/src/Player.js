@@ -13,27 +13,24 @@ export class Player {
         // Physics Constants (Tweaked for "Heavy & Drift")
         // Physics Stats (Configurable)
         this.stats = {
-            mass: 100,          // Heavy Base
-            moveForce: 5000,    // Increased to overcome Heavy Mass
-            damping: 0.5,       // Reduced from 0.7 to allow movement
-            maxSpeed: 15,
-            bargeForce: 15000,   // Dash power
+            mass: 80,           // HEAVY (Restored from 60 to 80)
+            moveForce: 5000,    // POWERFUL Engine to push heavy mass
+            damping: 0.3,       // Tuned to 0.3 (Slightly more control than 0.25)
+            maxSpeed: 20,       // Cap speed
+            bargeForce: 12000,  // Strong impact
             bargeCooldown: 1.0
         };
         
         // Input State
-        
-        // Input State
         this.input = {
-            up: false,
-            down: false,
-            left: false,
-            right: false,
+            // Deprecated boolean flags for movement, now using inputStack
             barge: false
         };
+        this.inputStack = []; // Last-Key Priority Stack
 
         // Animation State
-        this.bargeTimer = 0;
+        this.bargeTimer = 0; // Cooldown
+        this.bargeWindow = 0; // Duration where max speed is ignored
         this.animTime = 0;
         this.squashScale = new THREE.Vector3(1, 1, 1);
 
@@ -65,6 +62,12 @@ export class Player {
     initVisuals() {
         // The Bean: Chunky Capsule
         const geometry = new THREE.CapsuleGeometry(0.75, 1, 4, 8); // Radius 0.75, Height 1 (Total 2.5)
+        
+        // CRITICAL FIX: Shift geometry pivot to FEET
+        // Total Height 2.5. Half Height 1.25.
+        // We ensure (0,0,0) is at the bottom of the mesh.
+        geometry.translate(0, 1.25, 0);
+
         // Vibrant Pink, Shiny Plastic
         const material = new THREE.MeshStandardMaterial({ 
             color: 0xff0055, 
@@ -83,29 +86,77 @@ export class Player {
 
     handleKey(event, isPressed) {
         if (!this.inputEnabled) return;
-        switch(event.code) {
-            case 'ArrowUp': this.input.up = isPressed; break;
-            case 'ArrowDown': this.input.down = isPressed; break;
-            case 'ArrowLeft': this.input.left = isPressed; break;
-            case 'ArrowRight': this.input.right = isPressed; break;
-            case 'Space': this.input.barge = isPressed; break;
+        
+        // Prevent browser scrolling with arrow keys
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
+            event.preventDefault();
+        }
+
+        if (event.code === 'Space') {
+            this.input.barge = isPressed;
+            return;
+        }
+
+        const moveKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+        if (moveKeys.includes(event.code)) {
+            if (isPressed) {
+                // Add to stack if not present
+                if (!this.inputStack.includes(event.code)) {
+                    this.inputStack.push(event.code);
+                }
+                // If it IS present (repeat keydown), do we move it to top? 
+                // Creating "re-press" effect? Usually browser handles repetition.
+                // Let's ensure it's at the top for clarity if users mash.
+                else {
+                    const idx = this.inputStack.indexOf(event.code);
+                    this.inputStack.splice(idx, 1);
+                    this.inputStack.push(event.code);
+                }
+            } else {
+                // Remove from stack
+                const idx = this.inputStack.indexOf(event.code);
+                if (idx > -1) {
+                    this.inputStack.splice(idx, 1);
+                }
+            }
         }
     }
 
     update(dt) {
-        // console.log("Player Update. Input:", this.input); // Too noisy every frame, stick to key events + velocity set check
-        // 1. Calculate Input Vector (Direction)
+        // console.log("Player Input Stack:", this.inputStack); 
+        // Find latest keys
+        const lastX = this.inputStack.slice().reverse().find(k => k === 'ArrowLeft' || k === 'ArrowRight');
+        const lastZ = this.inputStack.slice().reverse().find(k => k === 'ArrowUp' || k === 'ArrowDown');
+        
         const inputVector = new CANNON.Vec3(0, 0, 0);
 
-        if (this.input.up) inputVector.z -= 1;
-        if (this.input.down) inputVector.z += 1;
-        if (this.input.left) inputVector.x -= 1;
-        if (this.input.right) inputVector.x += 1;
+        if (lastX === 'ArrowLeft') inputVector.x -= 1;
+        if (lastX === 'ArrowRight') inputVector.x += 1;
+        if (lastZ === 'ArrowUp') inputVector.z -= 1;
+        if (lastZ === 'ArrowDown') inputVector.z += 1;
 
-        // Normalize if moving diagonally so speed is consistent
-        if (inputVector.lengthSquared() > 0) {
-            inputVector.normalize();
-        }
+        // Rotate Input to align with Isometric Camera (45 degrees)
+        // Camera is at (+X, +Z) looking at Origin.
+        // "Up" key should move away from camera (-X, -Z).
+        
+        const angle = -Math.PI / 4; // -45 degrees
+        
+        const sin = Math.sin(angle);
+        const cos = Math.cos(angle);
+        
+        // Standard Isometric Rotation
+        const finalX = inputVector.x * cos - inputVector.z * sin; // Rotate
+        const finalZ = inputVector.x * sin + inputVector.z * cos;
+        
+        // Reuse inputVector
+        inputVector.set(finalX, 0, finalZ);
+
+        // Normalize? 
+        // Removing normalization makes diagonal movement faster (1.4x force), 
+        // which often feels better and avoids "weakness" in diagonal friction calculations.
+        // if (inputVector.lengthSquared() > 0) {
+        //    inputVector.normalize();
+        // }
 
         // 2. Rotate Body to Face Movement Direction
         if (inputVector.lengthSquared() > 0) {
@@ -121,9 +172,11 @@ export class Player {
         this.body.linearDamping = this.stats.damping;
 
         const isMoving = inputVector.lengthSquared() > 0;
+        
+        // Ensure awake every frame to prevent sleeping issues
+        this.body.wakeUp();
 
         if (isMoving) {
-            this.body.wakeUp();
             const force = new CANNON.Vec3(
                 inputVector.x * this.stats.moveForce,
                 0,
@@ -134,6 +187,7 @@ export class Player {
 
         // --- BARGE MECHANIC ---
         if (this.bargeTimer > 0) this.bargeTimer -= dt;
+        if (this.bargeWindow > 0) this.bargeWindow -= dt;
 
         if (this.input.barge && this.bargeTimer <= 0) {
             // Determine direction (Face forward if no input)
@@ -151,6 +205,7 @@ export class Player {
             
             // Trigger Cooldown & Animation
             this.bargeTimer = this.stats.bargeCooldown;
+            this.bargeWindow = 0.5; // Ignore max speed for 0.5s
             
             // Squash Animation (Flatten Y, Expand XZ)
             this.squashScale.set(1.4, 0.6, 1.4);
@@ -166,7 +221,9 @@ export class Player {
         // Let's allow overspeed for friction to kill it.
         const vel = this.body.velocity;
         const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-        if (speed > this.stats.maxSpeed) {
+        
+        // Disable Speed Cap while Barging (to allow burst)
+        if (this.bargeWindow <= 0 && speed > this.stats.maxSpeed) {
             // Only clamp if not recently barged? Or just let friction handle it?
             // "The player slides too much" -> Friction is 0.9. It will kill speed fast.
             // So we can relax the clamp or just clamp to a higher value?
@@ -180,7 +237,8 @@ export class Player {
         this.animTime += dt;
         
         // Base Scale from Mass (100 = 1.0)
-        const baseScale = this.stats.mass / 100;
+        // FIX: Disable scaling for now to ensure visuals match physics (Radius 0.75)
+        const baseScale = 1.0; 
         const targetScale = new THREE.Vector3(baseScale, baseScale, baseScale);
 
         // Recovery from Squash to Target Scale
@@ -199,11 +257,10 @@ export class Player {
         this.mesh.position.copy(this.body.position);
         
         // Offset Calculation:
-        // Physics Body Center (Sphere r=0.75) is at Y=0.75.
-        // Visual Mesh (Capsule r=0.75, h=1, total=2.5) has center at Y=1.25.
-        // Diff = 1.25 - 0.75 = 0.5.
-        // We need to move Visual UP by 0.5 relative to Physics.
-        this.mesh.position.y += 0.5; 
+        // Physics Body Center (Sphere r=0.75) is at Y=0.75 relative to floor.
+        // Mesh Pivot is now at FEET (0,0,0).
+        // Feet should be at BodyY - 0.75.
+        this.mesh.position.y -= 0.75; 
 
         this.mesh.quaternion.copy(this.body.quaternion);
     }
@@ -252,7 +309,7 @@ export class Player {
         
         // Snap Visuals immediately
         this.mesh.position.copy(this.body.position);
-        this.mesh.position.y += 0.5;
+        this.mesh.position.y -= 0.75;
         this.mesh.quaternion.copy(this.body.quaternion);
     }
 }
