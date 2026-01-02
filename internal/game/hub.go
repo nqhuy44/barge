@@ -61,6 +61,23 @@ func (h *Hub) Run() {
 				delete(h.Clients, client)
 				close(client.Send)
 				log.Printf("Client unregistered: %s", client.ID)
+
+				// NEW: Broadcast PLAYER_LEFT
+				leaveMsg := map[string]string{
+					"type": "PLAYER_LEFT",
+					"id":   client.ID,
+				}
+				jsonMsg, _ := json.Marshal(leaveMsg)
+
+				// Broadcast to remaining clients
+				for remainingClient := range h.Clients {
+					select {
+					case remainingClient.Send <- jsonMsg:
+					default:
+						close(remainingClient.Send)
+						delete(h.Clients, remainingClient)
+					}
+				}
 			}
 			h.Mutex.Unlock()
 

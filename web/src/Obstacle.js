@@ -5,7 +5,7 @@ export class Obstacle {
     constructor(scene, world, config = {}) {
         this.scene = scene;
         this.world = world;
-        
+        this.config = config; // Store config for init() access        
         // Defaults
         this.type = config.type || 'BOX';
         this.pos = config.position || { x: 0, y: 0, z: 0 };
@@ -78,6 +78,16 @@ export class Obstacle {
             this.body.addShape(shape);
         }
         
+        // Apply Initial Rotation if provided (e.g., for Ramps)
+        if (this.config && this.config.rotation) {
+            const { x, y, z } = this.config.rotation;
+            this.body.quaternion.setFromEuler(x, y, z);
+            
+            // Sync Mesh immediately
+            this.mesh.rotation.set(x, y, z);
+            this.mesh.quaternion.copy(this.body.quaternion);
+        }
+
         this.world.addBody(this.body);
 
         // Sync initial pos

@@ -16,7 +16,8 @@ const timeStep = 1 / 60;
 
 // --- Scene & Camera ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000033); // Dark Blue
+scene.background = new THREE.Color(0xcccccc);
+scene.fog = new THREE.Fog(0xcccccc, 20, 60);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(10, 15, 10);
@@ -109,6 +110,14 @@ network.onMessage((data) => {
         if (data.color && p.color !== data.color) {
                 p.setSkinColor(data.color);
         }
+    } else if (data.type === 'PLAYER_LEFT') {
+        const p = remotePlayers[data.id];
+        if (p) {
+            console.log(`Player Left: ${data.id}`);
+            scene.remove(p.visualRoot);
+            world.removeBody(p.body);
+            delete remotePlayers[data.id];
+        }
     } else {
         // Spawn New Remote Player
         console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
@@ -121,12 +130,12 @@ network.onMessage((data) => {
 function startGame(serverSeed) {
     try {
         console.log("Initializing Arena with Seed:" + serverSeed);
-        arena = new Arena(scene, world, materials, PLAYER_COUNT, 'FIXED_SQUARE'); 
+        // Use RANDOM_SQUARE with Server Seed
+        arena = new Arena(scene, world, materials, PLAYER_COUNT, 'RANDOM_SQUARE', serverSeed); 
 
-        // 2. Players (Use Arena Spawn Points)
-        // Randomize Spawn Logic
-        const mySpawnIndex = Math.floor(Math.random() * PLAYER_COUNT);
-        p1Spawn = arena.getSpawnPoint(mySpawnIndex, PLAYER_COUNT);
+        // 2. Players (Use Random Spawn)
+        // Ensure strictly different positions by using random float range
+        const p1Spawn = arena.getRandomSpawnPoint();
         player = new Player(scene, world, { x: p1Spawn.x, y: 5, z: p1Spawn.z }, myColor, playerMaterial);
 
         cameraController = new CameraController(camera, player);
@@ -171,7 +180,8 @@ function animate() {
 
         // Ring Out Logic
         if (player.body.position.y < arena.config.killY) {
-            player.reset({ x: p1Spawn.x, y: 5, z: p1Spawn.z });
+            const respawnPos = arena.getRandomSpawnPoint();
+            player.reset({ x: respawnPos.x, y: 5, z: respawnPos.z });
         }
         if (dummy && dummy.body.position.y < arena.config.killY) {
             dummy.reset({ x: p2Spawn.x, y: 5, z: p2Spawn.z });
