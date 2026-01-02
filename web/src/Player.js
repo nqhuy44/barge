@@ -226,6 +226,13 @@ export class Player {
         this.body.mass = newMass;
         this.body.updateMassProperties();
     }
+
+    setSkinColor(color) {
+        this.color = color;
+        if (this.skinMesh && this.skinMesh.material) {
+            this.skinMesh.material.color.setHex(color);
+        }
+    }
     
     reset(pos) {
         this.body.position.set(pos.x, pos.y, pos.z);

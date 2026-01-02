@@ -6,6 +6,7 @@ import GUI from 'lil-gui';
 import { Player } from './Player.js';
 import { CameraController } from './CameraController.js';
 import { Arena } from './Arena.js';
+import { NetworkManager } from './NetworkManager.js';
 
 // --- Configuration ---
 const config = {
@@ -74,7 +75,7 @@ world.addContactMaterial(playerObstacleMat);
 // --- Objects ---
 
 // 1. Arena System
-const PLAYER_COUNT = 2; 
+const PLAYER_COUNT = 8; 
 const materials = {
     default: defaultMaterial,
     obstacle: obstacleMaterial
@@ -82,30 +83,65 @@ const materials = {
 // Mode: 'FIXED_SUMO' (Test) or 'RANDOM_CIRCLE' (Chaos)
 // Mode: 'FIXED_SUMO' (Test) or 'RANDOM_CIRCLE' (Chaos)
 let arena, player, dummy, p1Spawn, p2Spawn, cameraController;
+let network;
+const remotePlayers = {};
+const PALETTE = [0xFF5555, 0x50FA7B, 0xF1FA8C, 0xBD93F9, 0x8BE9FD]; // Red, Green, Yellow, Purple, Cyan
+const myColor = PALETTE[Math.floor(Math.random() * PALETTE.length)];
 
-try {
-    console.log("Initializing Arena...");
-    arena = new Arena(scene, world, materials, PLAYER_COUNT, 'FIXED_SQUARE'); 
+// 1. Setup Networking First
+network = new NetworkManager();
+network.connect();
 
-    // 2. Players (Use Arena Spawn Points)
-    p1Spawn = arena.getSpawnPoint(0, PLAYER_COUNT);
-    player = new Player(scene, world, { x: p1Spawn.x, y: 5, z: p1Spawn.z }, 0xffff00, playerMaterial);
+// 2. Wait for Game Start (Seed)
+network.onGameStart((serverSeed) => {
+    startGame(serverSeed);
+});
 
-    p2Spawn = arena.getSpawnPoint(1, PLAYER_COUNT);
-    dummy = new Player(scene, world, { x: p2Spawn.x, y: 5, z: p2Spawn.z }, 0xffff00, playerMaterial, false); 
-    dummy.setMass(50); 
-    dummy.skinMesh.material.color.setHex(0xffff00); // Yellow
-    player.skinMesh.material.color.setHex(0xff0000); // Red
+network.onMessage((data) => {
+    if (remotePlayers[data.id]) {
+        // Update Existing
+        const p = remotePlayers[data.id];
+        p.body.position.set(data.x, data.y, data.z);
+        p.body.quaternion.set(data.rx, data.ry, data.rz, data.rw);
+        p.body.velocity.set(data.vx, data.vy, data.vz);
+        
+        // Ensure Color Sync
+        if (data.color && p.color !== data.color) {
+                p.setSkinColor(data.color);
+        }
+    } else {
+        // Spawn New Remote Player
+        console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
+        const p = new Player(scene, world, { x: data.x, y: data.y, z: data.z }, data.color || 0x00ffff, playerMaterial, false);
+        p.setMass(80); // Ensure mass matches
+        remotePlayers[data.id] = p;
+    }
+});
 
-    // 3. Camera Controller
-    cameraController = new CameraController(camera, player);
+function startGame(serverSeed) {
+    try {
+        console.log("Initializing Arena with Seed:" + serverSeed);
+        arena = new Arena(scene, world, materials, PLAYER_COUNT, 'FIXED_SQUARE'); 
 
-    // Force sync
-    player.update(timeStep); 
-    cameraController.update(timeStep, true);
-} catch (e) {
-    console.error("CRITICAL INIT ERROR:", e);
-    alert("Init Error: " + e.message);
+        // 2. Players (Use Arena Spawn Points)
+        // Randomize Spawn Logic
+        const mySpawnIndex = Math.floor(Math.random() * PLAYER_COUNT);
+        p1Spawn = arena.getSpawnPoint(mySpawnIndex, PLAYER_COUNT);
+        player = new Player(scene, world, { x: p1Spawn.x, y: 5, z: p1Spawn.z }, myColor, playerMaterial);
+
+        cameraController = new CameraController(camera, player);
+
+        // Force sync
+        player.update(timeStep); 
+        cameraController.update(timeStep, true);
+
+        // Start Loop
+        animate();
+
+    } catch (e) {
+        console.error("CRITICAL INIT ERROR:", e);
+        alert("Init Error: " + e.message);
+    }
 }
 
 function animate() {
@@ -115,9 +151,20 @@ function animate() {
     world.fixedStep(timeStep);
 
     // Safe Update Loop
-    if (player && dummy && arena && cameraController) {
+    if (player && arena && cameraController) {
         player.update(timeStep);
-        dummy.update(timeStep);
+        if (dummy) dummy.update(timeStep);
+
+        // Network Sync
+        network.sendState(
+            player.body.position, 
+            player.body.quaternion, 
+            player.body.velocity,
+            myColor // <--- Sending Identity
+        );
+
+        // Update Remote Players
+        Object.values(remotePlayers).forEach(p => p.update(timeStep));
         
         // Update Obstacles via Arena
         arena.update();
@@ -126,7 +173,7 @@ function animate() {
         if (player.body.position.y < arena.config.killY) {
             player.reset({ x: p1Spawn.x, y: 5, z: p1Spawn.z });
         }
-        if (dummy.body.position.y < arena.config.killY) {
+        if (dummy && dummy.body.position.y < arena.config.killY) {
             dummy.reset({ x: p2Spawn.x, y: 5, z: p2Spawn.z });
             dummy.body.velocity.set(0,0,0);
         }
@@ -148,4 +195,5 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-animate();
+// Remove auto-start animate()
+// animate();

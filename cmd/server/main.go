@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/nqhuy44/barge/internal/game"
 )
 
 func main() {
@@ -16,29 +18,32 @@ func main() {
 		port = "8080"
 	}
 
-	// Determine static path. Prefer "web/dist" if running from root.
-	// The user mentiond "../web/dist", which might imply running from a subdirectory.
-	// We'll fallback to that if web/dist doesn't exist, just in case.
+	// 1. Initialize Game Hub
+	hub := game.NewHub()
+	go hub.Run()
+
+	// 2. Setup Static Files
 	staticDir := "web/dist"
 	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		// Try ../web/dist
 		if _, err := os.Stat("../web/dist"); err == nil {
 			staticDir = "../web/dist"
 		}
 	}
 	
-	// If still not found, we might be in dev and dist doesn't exist yet, 
-	// or we just default to web/dist.
-	
 	log.Printf("Serving static files from: %s", staticDir)
 	fs := http.FileServer(http.Dir(staticDir))
 	http.Handle("/", fs)
+
+	// 3. Setup WebSocket Route
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		game.ServeWs(hub, w, r)
+	})
 
 	srv := &http.Server{
 		Addr: ":" + port,
 	}
 
-	// Server run in goroutine
+	// 4. Start Server
 	go func() {
 		log.Printf("Server starting on port %s...", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
