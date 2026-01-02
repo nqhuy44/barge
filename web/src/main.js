@@ -85,7 +85,7 @@ let arena, player, dummy, p1Spawn, p2Spawn, cameraController;
 
 try {
     console.log("Initializing Arena...");
-    arena = new Arena(scene, world, materials, PLAYER_COUNT, 'FIXED_SUMO'); 
+    arena = new Arena(scene, world, materials, PLAYER_COUNT, 'FIXED_SQUARE'); 
 
     // 2. Players (Use Arena Spawn Points)
     p1Spawn = arena.getSpawnPoint(0, PLAYER_COUNT);
