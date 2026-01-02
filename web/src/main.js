@@ -98,8 +98,8 @@ const player = new Player(scene, world, { x: 0, y: 2, z: 0 }, 0xffff00, playerMa
 // 3. Dummy (Target)
 const dummy = new Player(scene, world, { x: 5, y: 2, z: 5 }, 0xffff00, playerMaterial, false); 
 dummy.setMass(50); 
-dummy.mesh.material.color.setHex(0xffff00); // Yellow
-player.mesh.material.color.setHex(0xff0000); // Red
+dummy.skinMesh.material.color.setHex(0xffff00); // Yellow
+player.skinMesh.material.color.setHex(0xff0000); // Red
 
 // 3. Camera Controller
 const cameraController = new CameraController(camera, player);

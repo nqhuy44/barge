@@ -15,11 +15,11 @@ export class CameraController {
     }
 
     update(dt, forceSnap = false) {
-        if (!this.target || !this.target.mesh) return;
+        if (!this.target || !this.target.visualRoot) return;
 
         // 1. Base Target Position
         // We use the mesh position for visual smoothness
-        const targetPos = this.target.mesh.position.clone();
+        const targetPos = this.target.visualRoot.position.clone();
 
         // 2. Look Ahead (Based on Physics Velocity)
         // This shifts the camera target in the direction the player is going

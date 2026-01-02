@@ -15,7 +15,7 @@ export class Player {
             moveForce: 7000,    // Snappy acceleration
             damping: 0.9,       // High drag
             maxSpeed: 20,       // Soft Cap
-            bargeForce: 7000,   // Reduced from 14000 to prevent flying off map (Target Speed ~60)
+            bargeForce: 5000,   // Reduced from 14000 to prevent flying off map (Target Speed ~60)
             bargeCooldown: 1.0,
             bargeDuration: 0.3  // Short visual burst
         };
@@ -28,6 +28,10 @@ export class Player {
         this.input = { barge: false };
         this.animTime = 0;
         this.squashScale = new THREE.Vector3(1, 1, 1);
+
+        // ARCHITECTURE CHANGE: Visual Root Container
+        this.visualRoot = new THREE.Group();
+        this.scene.add(this.visualRoot);
 
         this.initPhysics(position);
         this.initVisuals(); 
@@ -53,6 +57,11 @@ export class Player {
     }
 
     initVisuals() {
+        this.skinMesh = this.createDefaultSkin(this.color);
+        this.visualRoot.add(this.skinMesh);
+    } 
+
+    createDefaultSkin(color) {
         // Radius 1.25, Length 1. Total Height = 2.5 + 1 = 3.5.
         const geometry = new THREE.CapsuleGeometry(1.25, 1, 4, 8);
         
@@ -61,13 +70,13 @@ export class Player {
         geometry.translate(0, 1.75, 0); 
 
         const material = new THREE.MeshStandardMaterial({ 
-            color: this.color, 
+            color: color, 
             roughness: 0.2,
             metalness: 0.1
         });
-        this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.castShadow = true;
-        this.scene.add(this.mesh);
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        return mesh;
     } 
 
     setupInput() {
@@ -194,21 +203,22 @@ export class Player {
         this.squashScale.lerp(targetScale, 0.1);
         const breathe = 1 + Math.sin(this.animTime * 3) * 0.03;
         
-        this.mesh.scale.copy(this.squashScale);
+        // Scale the SKIN, not the ROOT
+        this.skinMesh.scale.copy(this.squashScale);
         if (!isMoving) {
-             this.mesh.scale.y *= breathe;
+             this.skinMesh.scale.y *= breathe;
         }
 
-        // Sync Position
-        this.mesh.position.copy(this.body.position);
+        // Sync Position (Root follows Body)
+        this.visualRoot.position.copy(this.body.position);
         
         // Offset: 
         // Body Y is Center of Sphere (Radius 1.25).
         // Feet are at BodyY - 1.25.
         // Mesh Pivot is at Feet.
-        this.mesh.position.y -= 1.25; 
+        this.visualRoot.position.y -= 1.25; 
 
-        this.mesh.quaternion.copy(this.body.quaternion);
+        this.visualRoot.quaternion.copy(this.body.quaternion);
     }
 
     setMass(newMass) {
@@ -223,8 +233,10 @@ export class Player {
         this.body.angularVelocity.set(0, 0, 0);
         this.body.quaternion.set(0, 0, 0, 1);
         
-        this.mesh.position.copy(this.body.position);
-        this.mesh.position.y -= 1.25; // Reset offset match
-        this.mesh.quaternion.copy(this.body.quaternion);
+        this.body.quaternion.set(0, 0, 0, 1);
+        
+        this.visualRoot.position.copy(this.body.position);
+        this.visualRoot.position.y -= 1.25; // Reset offset match
+        this.visualRoot.quaternion.copy(this.body.quaternion);
     }
 }
