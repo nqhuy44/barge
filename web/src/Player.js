@@ -143,15 +143,29 @@ export class Player {
         const currentSpeed = this.body.velocity.length();
         const isMoving = inputVector.lengthSquared() > 0;
 
+        // Ground Check (Raycast down)
+        // Radius 1.25. Check slightly further (1.4) to tolerate small gaps.
+        const rayFrom = this.body.position;
+        const rayTo = new CANNON.Vec3(rayFrom.x, rayFrom.y - 1.4, rayFrom.z);
+        const rayResult = new CANNON.RaycastResult();
+        this.world.raycastClosest(rayFrom, rayTo, {
+            skipBackfaces: true,
+            collisionFilterMask: 1, // Default Group
+            collisionFilterGroup: 1 
+        }, rayResult);
+
+        const isGrounded = rayResult.hasHit;
+        const airMultiplier = isGrounded ? 1.0 : 0.1; // 10% control in air
+
         // Apply Force ONLY if below Max Speed (Soft Cap)
         // This allows impulses (Barge/Collision) to push velocity WAY higher than 20.
         // But the player's engine stops adding force once 20 is reached.
         if (isMoving && currentSpeed < this.stats.maxSpeed) {
             this.body.wakeUp();
             const force = new CANNON.Vec3(
-                inputVector.x * this.stats.moveForce,
+                inputVector.x * this.stats.moveForce * airMultiplier,
                 0,
-                inputVector.z * this.stats.moveForce
+                inputVector.z * this.stats.moveForce * airMultiplier
             );
             this.body.applyForce(force, this.body.position);
         } else if (isMoving) {

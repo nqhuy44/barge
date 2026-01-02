@@ -127,9 +127,9 @@ export class Arena {
         }
     }
 
-    // --- MAP 3: SQUARE (Flush Terrain with Variable Ramps) ---
+    // --- MAP 3: SQUARE (Scattered Tactical Terrain) ---
     createRandomSquareMap() {
-        console.log(`Generating FLUSH TERRAIN map (Seed: ${this.seed})`);
+        console.log(`Generating SPARSE TERRAIN map (Seed: ${this.seed})`);
         
         // 1. Aesthetics
         const FLOOR_COLOR = 0xeeeeee;
@@ -138,83 +138,76 @@ export class Arena {
         this.createFloorSquare(this.radius, FLOOR_COLOR);
         const obstacleMaterial = this.materials.obstacle;
 
-        // CONFIG
-        const PLATFORM_HEIGHT = 1.5;
-        // const PLATFORM_WIDTH = 4; // Moved to inside loop
-        const GRID_SIZE = 12; // INCREASED for more scatter
-        const COUNT = Math.floor(this.radius / 3.0); 
+        // --- CONFIGURATION ---
+        const WALL_HEIGHT = 1.5;     // 1.5m Height
+        const RAMP_THICKNESS = 20;   
+        const GRID_SIZE = 8;         
+        
+        // 1. BOUNDS FIX: Retract range to ensure walls stay on floor
+        const spawnRange = this.radius - 6; 
 
-        for (let i = 0; i < COUNT; i++) {
-            // 1. VARIABLE WIDTH
-            const platformWidth = 2 + this.seededRandom() * 2; // Random 2m to 4m
+        // 2. DENSITY REDUCTION: Drop to 20% coverage
+        const totalArea = (spawnRange * 2) * (spawnRange * 2);
+        const cellArea = GRID_SIZE * GRID_SIZE;
+        const OBSTACLE_COUNT = Math.floor((totalArea / cellArea) * 0.20); 
 
-            // 2. PLATFORM
+        for (let i = 0; i < OBSTACLE_COUNT; i++) {
+            // DIMENSIONS
+            const length = 4 + this.seededRandom() * 6; // 4-10m
+            const width = 5;                            // Fixed 5m Width
             const isHorizontal = this.seededRandom() > 0.5;
-            const length = 12 + Math.floor(this.seededRandom() * 8); // 12-20m
-            
+
             const size = {
-                x: isHorizontal ? length : platformWidth,
-                y: PLATFORM_HEIGHT,
-                z: isHorizontal ? platformWidth : length
+                x: isHorizontal ? length : width,
+                y: WALL_HEIGHT,
+                z: isHorizontal ? width : length
             };
 
-            // Grid Position
-            const range = this.radius - 12; // More padding
-            let rawX = (this.seededRandom() * range * 2) - range;
-            let rawZ = (this.seededRandom() * range * 2) - range;
+            // POSITION
+            let rawX = (this.seededRandom() * spawnRange * 2) - spawnRange;
+            let rawZ = (this.seededRandom() * spawnRange * 2) - spawnRange;
+            
             const x = Math.round(rawX / GRID_SIZE) * GRID_SIZE;
             const z = Math.round(rawZ / GRID_SIZE) * GRID_SIZE;
 
-            if (Math.abs(x) < 8 && Math.abs(z) < 8) continue;
+            // Safe Zone
+            if (Math.abs(x) < 6 && Math.abs(z) < 6) continue;
 
+            // SPAWN WALL
             this.addObstacle({
                 type: 'BOX',
-                position: { x, y: PLATFORM_HEIGHT / 2, z },
+                position: { x, y: WALL_HEIGHT / 2, z },
                 size: size,
                 mass: 0,
                 color: WALL_COLOR,
                 material: obstacleMaterial
             });
 
-            // 3. ATTACHED RAMP (30% Chance)
-            if (this.seededRandom() < 0.3) {
-                // Random Ramp Run
-                // Range: 2m (Steep) to 6m (Shallow)
-                const rampRun = 2 + (this.seededRandom() * 4); 
+            // ATTACHED RAMP (20% Chance)
+            if (this.seededRandom() < 0.2) {
+                const rampRun = 2 + this.seededRandom() * 2;
+                const rampRise = WALL_HEIGHT;
                 
-                const rampRise = PLATFORM_HEIGHT;
                 const rampHypotenuse = Math.sqrt(rampRun**2 + rampRise**2);
                 const rampAngle = Math.atan(rampRise / rampRun);
-                const rampThickness = 20; // Buried Wedge
+
+                const rampY = (rampRise / 2) - (RAMP_THICKNESS / 2) * Math.cos(rampAngle);
+                const shiftH = (RAMP_THICKNESS / 2) * Math.sin(rampAngle);
 
                 const dir = this.seededRandom() > 0.5 ? 1 : -1;
-                
-                // --- FLUSH MATH ---
-                const rampY = (rampRise / 2) - (rampThickness / 2) * Math.cos(rampAngle);
-                const shiftH = (rampThickness / 2) * Math.sin(rampAngle);
-
                 let rampPos, rampRot, rampSize;
+                const rampWidth = width; // Matches fixed 5m width
 
                 if (isHorizontal) {
-                    // Attach along X axis
                     const centerX = x + ((length / 2) + (rampRun / 2) - shiftH) * dir;
                     rampPos = { x: centerX, y: rampY, z: z };
-                    
-                    // Rotate Z
-                    rampRot = { x: 0, y: 0, z: -dir * rampAngle }; 
-                    
-                    // WIDTH matches Platform
-                    rampSize = { x: rampHypotenuse, y: rampThickness, z: platformWidth };
+                    rampRot = { x: 0, y: 0, z: -dir * rampAngle };
+                    rampSize = { x: rampHypotenuse, y: RAMP_THICKNESS, z: rampWidth };
                 } else {
-                    // Attach along Z axis
                     const centerZ = z + ((length / 2) + (rampRun / 2) - shiftH) * dir;
                     rampPos = { x: x, y: rampY, z: centerZ };
-                    
-                    // Rotate X
-                    rampRot = { x: dir * rampAngle, y: 0, z: 0 }; 
-                    
-                    // WIDTH matches Platform
-                    rampSize = { x: platformWidth, y: rampThickness, z: rampHypotenuse };
+                    rampRot = { x: dir * rampAngle, y: 0, z: 0 };
+                    rampSize = { x: rampWidth, y: RAMP_THICKNESS, z: rampHypotenuse };
                 }
 
                 this.addObstacle({
@@ -223,7 +216,7 @@ export class Arena {
                     size: rampSize,
                     rotation: rampRot,
                     mass: 0,
-                    color: WALL_COLOR, 
+                    color: WALL_COLOR,
                     material: obstacleMaterial
                 });
             }
