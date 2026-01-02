@@ -9,27 +9,28 @@ export class Player {
         this.material = material;
         this.inputEnabled = inputEnabled;
         
-        // FIX 1: Stats Heavy Drift
+        // FIX: Natural Drag Physics & Soft Cap
         this.stats = {
-            mass: 50,           
-            moveForce: 3000,    
-            damping: 0.4,       
-            maxSpeed: 15,
-            bargeForce: 10000,
+            mass: 80,
+            moveForce: 7000,    // Snappy acceleration
+            damping: 0.9,       // High drag
+            maxSpeed: 20,       // Soft Cap
+            bargeForce: 7000,   // Reduced from 14000 to prevent flying off map (Target Speed ~60)
             bargeCooldown: 1.0,
-            bargeMaxSpeed: 80 // New Cap for Barge
+            bargeDuration: 0.3  // Short visual burst
         };
         
         // FIX 2: Input Stack (Last Key Wins)
         this.inputStack = []; 
-        this.input = { barge: false }; // Space bar check riêng
-
-        this.bargeTimer = 0;
+        this.bargeTimer = 0;   // Cooldown timer
+        this.bargeActiveTimer = 0; // Duration timer (Active State)
+        this.isBarging = false;
+        this.input = { barge: false };
         this.animTime = 0;
         this.squashScale = new THREE.Vector3(1, 1, 1);
 
         this.initPhysics(position);
-        this.initVisuals();
+        this.initVisuals(); 
         this.setupInput();
     }
 
@@ -128,11 +129,15 @@ export class Player {
             this.body.quaternion.slerp(targetQuat, 0.1, this.body.quaternion);
         }
 
-        // Physics Apply
+        // Physics Apply: SOFT SPEED CAP
         this.body.linearDamping = this.stats.damping;
+        const currentSpeed = this.body.velocity.length();
         const isMoving = inputVector.lengthSquared() > 0;
 
-        if (isMoving) {
+        // Apply Force ONLY if below Max Speed (Soft Cap)
+        // This allows impulses (Barge/Collision) to push velocity WAY higher than 20.
+        // But the player's engine stops adding force once 20 is reached.
+        if (isMoving && currentSpeed < this.stats.maxSpeed) {
             this.body.wakeUp();
             const force = new CANNON.Vec3(
                 inputVector.x * this.stats.moveForce,
@@ -140,13 +145,29 @@ export class Player {
                 inputVector.z * this.stats.moveForce
             );
             this.body.applyForce(force, this.body.position);
+        } else if (isMoving) {
+            // Wake up even if speed capped, to keep simulation active
+            this.body.wakeUp();
         }
 
         // Barge Logic
         if (this.bargeTimer > 0) this.bargeTimer -= dt;
-        if (this.bargeWindow > 0) this.bargeWindow -= dt;
+        if (this.bargeActiveTimer > 0) {
+            this.bargeActiveTimer -= dt;
+            if (this.bargeActiveTimer <= 0) {
+                this.isBarging = false;
+                // Reset scale on finish
+                this.squashScale.set(1, 1, 1); 
+            }
+        }
 
         if (this.input.barge && this.bargeTimer <= 0) {
+            // Activate Barge
+            this.isBarging = true;
+            this.bargeActiveTimer = this.stats.bargeDuration; // 0.5s Active
+            this.bargeTimer = this.stats.bargeCooldown;
+
+            // Apply Massive Impulse
             let bargeDir = inputVector.clone();
             if (bargeDir.lengthSquared() === 0) {
                 const forward = new CANNON.Vec3(0, 0, 1);
@@ -157,25 +178,12 @@ export class Player {
             const impulse = bargeDir.scale(this.stats.bargeForce);
             this.body.applyImpulse(impulse, this.body.position);
             
-            this.bargeTimer = this.stats.bargeCooldown;
-            this.bargeWindow = 0.1; // Burst duration 0.1s (User Request)
+            // Visual Flare
             this.squashScale.set(1.4, 0.6, 1.4);
         }
 
-        // Speed Limit
-        const vel = this.body.velocity;
-        const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-        
-        let limit = this.stats.maxSpeed;
-        if (this.bargeWindow > 0) {
-            limit = this.stats.bargeMaxSpeed;
-        }
-
-        if (speed > limit) {
-            const ratio = limit / speed;
-            vel.x *= ratio;
-            vel.z *= ratio;
-        } 
+        // Removed Hard Speed Clamp completely.
+        // Damping (0.9) will naturally decay any speed over 20. 
         
         // Animation
         this.animTime += dt;
