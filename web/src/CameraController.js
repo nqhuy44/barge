@@ -7,8 +7,8 @@ export class CameraController {
         
         // Configuration
         this.offset = new THREE.Vector3(8, 10, 8); // Close Isometric view
-        this.lookAheadFactor = 0.5; // How much to look ahead based on velocity
-        this.smoothFactor = 0.15; // 0.1 = slow/smooth, 1.0 = instant
+        this.lookAheadFactor = 0.0; // Disabled to prevent disorientation
+        this.smoothFactor = 0.2; // Stiffer follow (less lag)
         
         // Initial setup
         this.update(0, true); // Force instant snap on first frame
