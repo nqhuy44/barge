@@ -1,25 +1,23 @@
-import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import CannonDebugger from 'cannon-es-debugger';
-import Stats from 'stats.js';
-import GUI from 'lil-gui';
-import { Player } from './Player.js';
-import { CameraController } from './CameraController.js';
-import { Arena } from './Arena.js';
-import { NetworkManager } from './NetworkManager.js';
-
-// --- Configuration ---
-const config = {
-    debugPhysics: true,
-};
-const timeStep = 1 / 60;
+import * as THREE from "three";
+import * as CANNON from "cannon-es";
+import { Player } from "./Player.js";
+import { CameraController } from "./CameraController.js";
+import { Arena } from "./Arena.js";
+import { NetworkManager } from "./NetworkManager.js";
+import { DebugManager } from "./DebugManager.js";
+import { GameConfig } from "./GameConfig.js"; // Import Config
 
 // --- Scene & Camera ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xcccccc);
 scene.fog = new THREE.Fog(0xcccccc, 20, 60);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(
+  75,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
 camera.position.set(10, 15, 10);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -38,36 +36,42 @@ scene.add(directionalLight);
 
 // --- Physics World ---
 const world = new CANNON.World();
-world.gravity.set(0, -30, 0);
+const g = GameConfig.world.gravity;
+world.gravity.set(g.x, g.y, g.z);
 
 // --- Debug Tools ---
-const stats = new Stats();
-document.body.appendChild(stats.dom);
-
-const gui = new GUI();
-gui.add(config, 'debugPhysics').name('Show Wireframes');
-
-const cannonDebugger = new CannonDebugger(scene, world, {
-    color: 0xff0000,
-});
+// Initialize Debug Manager with GameConfig
+const debugManager = new DebugManager(scene, world, GameConfig);
 
 // --- Materials ---
-const defaultMaterial = new CANNON.Material('default');
-const playerMaterial = new CANNON.Material('player');
-const obstacleMaterial = new CANNON.Material('obstacle'); // New Material
+const defaultMaterial = new CANNON.Material("default");
+const playerMaterial = new CANNON.Material("player");
+const obstacleMaterial = new CANNON.Material("obstacle");
 
-const playerContactMat = new CANNON.ContactMaterial(playerMaterial, defaultMaterial, {
-    friction: 0.05, 
-    restitution: 0.7, 
-});
-const playerPlayerMat = new CANNON.ContactMaterial(playerMaterial, playerMaterial, {
+const playerContactMat = new CANNON.ContactMaterial(
+  playerMaterial,
+  defaultMaterial,
+  {
+    friction: 0.0,
+    restitution: 0.0,
+  }
+);
+const playerPlayerMat = new CANNON.ContactMaterial(
+  playerMaterial,
+  playerMaterial,
+  {
     friction: 0.3,
-    restitution: 0.9, 
-});
-const playerObstacleMat = new CANNON.ContactMaterial(playerMaterial, obstacleMaterial, {
-    friction: 0.1,
-    restitution: 0.7, // Realistic Bounce (was 1.5)
-});
+    restitution: 0.9,
+  }
+);
+const playerObstacleMat = new CANNON.ContactMaterial(
+  playerMaterial,
+  obstacleMaterial,
+  {
+    friction: 0.0,
+    restitution: 0.0,
+  }
+);
 
 world.addContactMaterial(playerContactMat);
 world.addContactMaterial(playerPlayerMat);
@@ -76,18 +80,17 @@ world.addContactMaterial(playerObstacleMat);
 // --- Objects ---
 
 // 1. Arena System
-const PLAYER_COUNT = 8; 
 const materials = {
-    default: defaultMaterial,
-    obstacle: obstacleMaterial
+  default: defaultMaterial,
+  obstacle: obstacleMaterial,
 };
-// Mode: 'FIXED_SUMO' (Test) or 'RANDOM_CIRCLE' (Chaos)
-// Mode: 'FIXED_SUMO' (Test) or 'RANDOM_CIRCLE' (Chaos)
+
 let arena, player, dummy, p1Spawn, p2Spawn, cameraController;
 let network;
 const remotePlayers = {};
-const PALETTE = [0xFF5555, 0x50FA7B, 0xF1FA8C, 0xBD93F9, 0x8BE9FD]; // Red, Green, Yellow, Purple, Cyan
-const myColor = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+// Select Random Color from Config Palette
+const palette = GameConfig.game.palette;
+const myColor = palette[Math.floor(Math.random() * palette.length)];
 
 // 1. Setup Networking First
 network = new NetworkManager();
@@ -95,114 +98,137 @@ network.connect();
 
 // 2. Wait for Game Start (Seed)
 network.onGameStart((serverSeed) => {
-    startGame(serverSeed);
+  startGame(serverSeed);
 });
 
 network.onMessage((data) => {
-    if (remotePlayers[data.id]) {
-        // Update Existing
-        const p = remotePlayers[data.id];
-        p.body.position.set(data.x, data.y, data.z);
-        p.body.quaternion.set(data.rx, data.ry, data.rz, data.rw);
-        p.body.velocity.set(data.vx, data.vy, data.vz);
-        
-        // Ensure Color Sync
-        if (data.color && p.color !== data.color) {
-                p.setSkinColor(data.color);
-        }
-    } else if (data.type === 'PLAYER_LEFT') {
-        const p = remotePlayers[data.id];
-        if (p) {
-            console.log(`Player Left: ${data.id}`);
-            scene.remove(p.visualRoot);
-            world.removeBody(p.body);
-            delete remotePlayers[data.id];
-        }
-    } else {
-        // Spawn New Remote Player
-        console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
-        const p = new Player(scene, world, { x: data.x, y: data.y, z: data.z }, data.color || 0x00ffff, playerMaterial, false);
-        p.setMass(80); // Ensure mass matches
-        remotePlayers[data.id] = p;
+  if (remotePlayers[data.id]) {
+    // Update Existing
+    const p = remotePlayers[data.id];
+    p.body.position.set(data.x, data.y, data.z);
+    p.body.quaternion.set(data.rx, data.ry, data.rz, data.rw);
+    p.body.velocity.set(data.vx, data.vy, data.vz);
+
+    // Ensure Color Sync
+    if (data.color && p.color !== data.color) {
+      p.setSkinColor(data.color);
     }
+  } else if (data.type === "PLAYER_LEFT") {
+    const p = remotePlayers[data.id];
+    if (p) {
+      console.log(`Player Left: ${data.id}`);
+      scene.remove(p.visualRoot);
+      world.removeBody(p.body);
+      delete remotePlayers[data.id];
+    }
+  } else {
+    // Spawn New Remote Player
+    console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
+    const p = new Player(
+      scene,
+      world,
+      { x: data.x, y: data.y, z: data.z },
+      data.color || 0x00ffff,
+      playerMaterial,
+      false
+    );
+    // Remote players should also use standard mass
+    p.setMass(GameConfig.player.mass);
+    remotePlayers[data.id] = p;
+  }
 });
 
 function startGame(serverSeed) {
-    try {
-        console.log("Initializing Arena with Seed:" + serverSeed);
-        // Use RANDOM_SQUARE with Server Seed
-        arena = new Arena(scene, world, materials, PLAYER_COUNT, 'RANDOM_SQUARE', serverSeed); 
+  try {
+    console.log("Initializing Arena with Seed:" + serverSeed);
+    // Use RANDOM_SQUARE with Server Seed
+    arena = new Arena(
+      scene,
+      world,
+      materials,
+      GameConfig.game.playerCount,
+      "RANDOM_SQUARE",
+      serverSeed
+    );
 
-        // 2. Players (Use Random Spawn)
-        // Ensure strictly different positions by using random float range
-        const p1Spawn = arena.getRandomSpawnPoint();
-        player = new Player(scene, world, { x: p1Spawn.x, y: 5, z: p1Spawn.z }, myColor, playerMaterial);
+    // 2. Players (Use Random Spawn)
+    const p1Spawn = arena.getRandomSpawnPoint();
+    player = new Player(
+      scene,
+      world,
+      { x: p1Spawn.x, y: 5, z: p1Spawn.z },
+      myColor,
+      playerMaterial
+    );
 
-        cameraController = new CameraController(camera, player);
+    cameraController = new CameraController(camera, player);
 
-        // Force sync
-        player.update(timeStep); 
-        cameraController.update(timeStep, true);
-
-        // Start Loop
-        animate();
-
-    } catch (e) {
-        console.error("CRITICAL INIT ERROR:", e);
-        alert("Init Error: " + e.message);
+    // Setup Physics Debugging via Manager
+    if (GameConfig.debug.showStats) {
+      debugManager.setupPlayerDebug(player);
     }
+
+    // Force sync
+    player.update(GameConfig.world.timeStep);
+    cameraController.update(GameConfig.world.timeStep, true);
+
+    // Start Loop
+    animate();
+  } catch (e) {
+    console.error("CRITICAL INIT ERROR:", e);
+    alert("Init Error: " + e.message);
+  }
 }
 
 function animate() {
-    requestAnimationFrame(animate);
+  requestAnimationFrame(animate);
 
-    stats.begin();
-    world.fixedStep(timeStep);
+  const dt = GameConfig.world.timeStep;
 
-    // Safe Update Loop
-    if (player && arena && cameraController) {
-        player.update(timeStep);
-        if (dummy) dummy.update(timeStep);
+  world.fixedStep(dt);
 
-        // Network Sync
-        network.sendState(
-            player.body.position, 
-            player.body.quaternion, 
-            player.body.velocity,
-            myColor // <--- Sending Identity
-        );
+  // Safe Update Loop
+  if (player && arena && cameraController) {
+    player.update(dt);
+    if (dummy) dummy.update(dt);
 
-        // Update Remote Players
-        Object.values(remotePlayers).forEach(p => p.update(timeStep));
-        
-        // Update Obstacles via Arena
-        arena.update();
+    // Network Sync
+    network.sendState(
+      player.body.position,
+      player.body.quaternion,
+      player.body.velocity,
+      myColor // <--- Sending Identity
+    );
 
-        // Ring Out Logic
-        if (player.body.position.y < arena.config.killY) {
-            const respawnPos = arena.getRandomSpawnPoint();
-            player.reset({ x: respawnPos.x, y: 5, z: respawnPos.z });
-        }
-        if (dummy && dummy.body.position.y < arena.config.killY) {
-            dummy.reset({ x: p2Spawn.x, y: 5, z: p2Spawn.z });
-            dummy.body.velocity.set(0,0,0);
-        }
+    // Update Remote Players
+    Object.values(remotePlayers).forEach((p) => p.update(dt));
 
-        cameraController.update(timeStep);
+    // Update Obstacles via Arena
+    arena.update();
+
+    // Ring Out Logic
+    if (player.body.position.y < arena.config.killY) {
+      const respawnPos = arena.getRandomSpawnPoint();
+      player.reset({ x: respawnPos.x, y: 5, z: respawnPos.z });
+    }
+    if (dummy && dummy.body.position.y < arena.config.killY) {
+      dummy.reset({ x: p2Spawn.x, y: 5, z: p2Spawn.z });
+      dummy.body.velocity.set(0, 0, 0);
     }
 
-    if (config.debugPhysics) {
-        cannonDebugger.update();
-    }
+    cameraController.update(dt);
+  }
 
-    renderer.render(scene, camera);
-    stats.end();
+  // Update Debug Manager (Wireframes & FPS)
+  debugManager.update();
+
+  renderer.render(scene, camera);
 }
 
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // Remove auto-start animate()
