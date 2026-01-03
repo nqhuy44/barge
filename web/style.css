@@ -1,0 +1,741 @@
+/* --- VARIABLES --- */
+:root {
+  /* Palette Core */
+  --bg-slate: #0f172a;
+  --bg-white: #ffffff;
+
+  /* Gradients for Buttons (Toy Effect) */
+  --g-red: linear-gradient(135deg, #ff5555, #c0392b);
+  --g-blue: linear-gradient(135deg, #3498db, #2980b9);
+  --g-green: linear-gradient(135deg, #50fa7b, #27ae60);
+  --g-yellow: linear-gradient(135deg, #f1fa8c, #f39c12);
+  --g-purple: linear-gradient(135deg, #bd93f9, #8e44ad);
+  --g-pink: linear-gradient(135deg, #ff79c6, #d63384);
+  --g-orange: linear-gradient(135deg, #ffb86c, #e67e22);
+  --g-cyan: linear-gradient(135deg, #8be9fd, #1abc9c);
+
+  /* Text Colors for Status */
+  --t-green: #16a34a;
+  --t-gray: #94a3b8;
+
+  /* Dimensions */
+  --border-thin: 2px; /* Mỏng hơn */
+  --border-thick: 3px; /* Dùng cho buttons */
+  --radius-lg: 24px;
+  --radius-md: 16px;
+}
+
+/* --- RESET --- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Fredoka", sans-serif;
+  color: var(--bg-slate);
+  min-height: 100vh;
+  /* background-color: #f8fafc; REMOVED to allow canvas visibility */
+  overflow: hidden; /* Prevent scrollbars from UI overlay */
+}
+
+/* UI LAYER OVERLAY */
+#ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10; /* Above Canvas */
+  padding: 1rem;
+  display: block; /* WAS flex - Block is better for simple scrolling */
+  pointer-events: auto; /* Allow interaction with UI (and scrolling) */
+  overflow-y: auto; /* Enable scrolling if content is tall */
+  -webkit-overflow-scrolling: touch; /* Smooth scroll on iOS */
+}
+
+/* Ensure UI layer doesn't block canvas when hidden (handled by .hidden class) */
+/* We don't need #ui-layer > * pointer-events logic anymore since parent is auto */
+
+.hidden {
+  display: none !important;
+}
+
+.container {
+  width: 100%;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 0 auto; /* Center horizontally since parent is block */
+  padding-bottom: 3rem; /* Extra space at bottom for scroll comfort */
+}
+
+/* --- CLEAN PANEL STYLE --- */
+.toy-panel {
+  background: rgba(255, 255, 255, 0.8);
+  border: var(--border-thin) solid var(--bg-slate);
+  border-radius: var(--radius-lg);
+  /* KHÔNG ĐỔ BÓNG CHO PANEL -> Nhìn phẳng và thoáng */
+  backdrop-filter: blur(8px);
+  width: 100%;
+}
+
+.section-header {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-left: 0.25rem;
+}
+
+/* --- 1. HEADER (Action Area) --- */
+.header-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: white;
+  gap: 1rem;
+}
+
+.room-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.room-badge {
+  background: #f3e8ff;
+  color: #7c3aed;
+  border: 2px solid var(--bg-slate);
+  border-radius: 99px;
+  padding: 0.25rem 1rem;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.player-count {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Nút Hành Động Chính (Thay đổi tùy Host/Client) */
+.btn-action {
+  border: var(--border-thick) solid var(--bg-slate);
+  border-radius: 12px;
+  padding: 0.6rem 2rem;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--bg-slate); /* Giữ hiệu ứng bấm cho nút */
+  transition: all 0.1s;
+  text-transform: uppercase;
+}
+.btn-action:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+/* Style cho Host: START */
+.btn-action.start {
+  background: var(--g-green);
+  color: white;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+/* Style cho Client: READY */
+.btn-action.ready {
+  background: white;
+  color: var(--bg-slate);
+}
+.btn-action.ready.is-active {
+  background: var(--g-blue);
+  color: white;
+}
+
+/* --- 2. MAIN LAYOUT --- */
+.content-wrapper {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr; /* Chia tỉ lệ */
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* --- 3. COLOR SELECTOR (Toy Effects Restored) --- */
+.color-panel {
+  padding: 1.5rem; /* Padding rộng hơn */
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1rem;
+}
+
+.color-btn {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid var(--bg-slate);
+  cursor: pointer;
+  position: relative;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15); /* Bóng nhẹ cho nút */
+  transition: transform 0.1s;
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(0, 0, 0, 0.1) 100%
+  );
+}
+
+.color-btn:hover {
+  transform: scale(1.1);
+  z-index: 2;
+}
+
+/* Trạng thái Active */
+.color-btn.active {
+  transform: scale(0.95);
+  box-shadow: inset 0 0 0 3px white; /* Viền trắng bên trong */
+  border-color: var(--bg-slate);
+}
+.color-btn.active::after {
+  content: "✔";
+  color: white;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1rem;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.color-btn.taken {
+  opacity: 0.2;
+  pointer-events: none;
+  cursor: not-allowed;
+  position: relative;
+}
+.color-btn.taken::after {
+  content: "✖";
+  color: white;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.color-grid.locked {
+  pointer-events: none;
+  opacity: 0.6;
+  filter: grayscale(0.8);
+}
+
+/* Gradient Colors */
+.bg-red {
+  background: var(--g-red);
+}
+.bg-blue {
+  background: var(--g-blue);
+}
+.bg-green {
+  background: var(--g-green);
+}
+.bg-yellow {
+  background: var(--g-yellow);
+}
+.bg-purple {
+  background: var(--g-purple);
+}
+.bg-pink {
+  background: var(--g-pink);
+}
+.bg-orange {
+  background: var(--g-orange);
+}
+.bg-cyan {
+  background: var(--g-cyan);
+}
+
+/* --- 4. PLAYER LIST (Clean Text Status) --- */
+.player-panel {
+  padding: 1.5rem;
+}
+
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.player-card {
+  background: white;
+  border: 2px solid #e2e8f0; /* Viền xám rất nhạt */
+  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  height: 64px;
+  transition: all 0.2s;
+}
+
+/* Avatar: Ô vuông bo góc */
+.p-avatar {
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--bg-slate);
+  border-radius: 10px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(0, 0, 0, 0.1) 100%
+  );
+}
+
+.p-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.p-name {
+  font-weight: 500;
+  font-size: 1rem;
+  color: var(--bg-slate);
+}
+
+.p-host {
+  font-size: 0.65rem;
+  color: #d97706; /* Vàng đậm */
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Text Status */
+.p-status {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+.status-ready {
+  color: var(--t-green);
+}
+.status-waiting {
+  color: var(--t-gray);
+  font-weight: 600;
+}
+
+.player-card.empty {
+  border: 2px dashed #cbd5e1;
+  background: transparent;
+  justify-content: center;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* --- 5. CHAT --- */
+.chat-panel {
+  height: 100%;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Để bo góc ko bị lòi */
+}
+
+.chat-body {
+  flex: 1;
+  background: #f8fafc;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.chat-msg {
+  padding: 0.5rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  max-width: 85%;
+  word-wrap: break-word;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.chat-msg.others {
+  align-self: flex-start;
+  background: white;
+  border-top-left-radius: 0;
+}
+
+.chat-msg.me {
+  align-self: flex-end;
+  background: #dbeafe; /* Light Blue for me */
+  border-color: #bfdbfe;
+  border-top-right-radius: 0;
+  text-align: right; /* Text logic handled by HTML structure mostly */
+}
+
+.chat-msg.system-msg {
+  align-self: center;
+  background: #f1f5f9;
+  border: none;
+  font-size: 0.8rem;
+  color: #64748b;
+  width: 100%;
+  text-align: center;
+  max-width: 100%;
+}
+
+.msg-name {
+  font-weight: 550;
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+}
+
+.msg-content {
+  color: #334155;
+  line-height: 1.4;
+}
+
+.chat-msg b {
+  color: #7c3aed; /* Kept for legacy system msg bolding */
+}
+
+.chat-footer {
+  padding: 0.5rem;
+  background: white;
+  display: flex;
+  gap: 0.5rem;
+}
+.chat-input {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  outline: none;
+  font-family: inherit;
+}
+.chat-input:focus {
+  border-color: #a78bfa;
+}
+
+.btn-send {
+  background: var(--bg-slate);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  width: 40px;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+/* --- MOBILE RESPONSIVE --- */
+@media (max-width: 768px) {
+  body {
+    padding: 0.5rem; /* Giảm padding body */
+  }
+
+  .container {
+    gap: 1rem;
+  }
+
+  .content-wrapper {
+    display: flex;
+    flex-direction: column; /* Xếp dọc */
+  }
+
+  /* Fix Color Grid: 4 cột */
+  .color-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+  }
+
+  /* FORCE FULL WIDTH ON MOBILE */
+  .content-wrapper {
+    align-items: stretch; /* Fix: Ensure children stretch to full width */
+  }
+
+  .col-left,
+  .col-right {
+    width: 100%;
+  }
+
+  .player-card {
+    height: 56px; /* Nhỏ hơn chút */
+  }
+
+  .chat-panel {
+    height: 300px; /* Chat ngắn lại */
+  }
+
+  /* Header Action Button gọn hơn */
+  .header-panel {
+    padding: 0.75rem;
+  }
+}
+
+/* --- MAIN MENU STYLES --- */
+
+#main-menu-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 20; /* Above Lobby (10) */
+  pointer-events: auto;
+  overflow-y: auto;
+  display: flex; /* Default Visible */
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  /* Blueprint Grid */
+  background-image: linear-gradient(rgba(15, 23, 42, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+#main-menu-layer.hidden {
+  display: none !important;
+}
+
+.menu-container {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: auto;
+  padding: 1rem;
+}
+
+/* Override/Augment toy-panel for menu context */
+.menu-container .toy-panel {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.title-box {
+  background: var(--bg-white);
+  border: var(--border-thick) solid var(--bg-slate);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: 4px 4px 0 var(--bg-slate);
+  transform: rotate(-2deg);
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.game-title {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 2px;
+  background: linear-gradient(135deg, #ff5555, #bd93f9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 2px 2px 0px rgba(15, 23, 42, 0.1);
+  text-transform: uppercase;
+}
+
+.tagline {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 0.5rem;
+  letter-spacing: 0.5px;
+}
+
+.input-group {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.label {
+  font-size: 0.9rem;
+  font-weight: var(--fw-normal);
+  text-transform: uppercase;
+  color: #64748b;
+  padding-left: 0.5rem;
+  letter-spacing: 0.5px;
+}
+
+.input-field {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-size: 1.1rem;
+  font-weight: var(--fw-normal);
+  font-family: inherit;
+  color: var(--bg-slate);
+  background: #f1f5f9;
+  border: var(--border-med) solid var(--bg-slate);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.input-field:focus {
+  background: #ffffff;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+.input-field::placeholder {
+  color: #cbd5e1;
+  font-weight: 400;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  color: #94a3b8;
+  font-weight: var(--fw-normal);
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1.5px;
+  background: #e2e8f0;
+}
+.divider::before {
+  margin-right: 1rem;
+}
+.divider::after {
+  margin-left: 1rem;
+}
+
+.btn {
+  border: var(--border-thick) solid var(--bg-slate);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  font-size: 1.1rem;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.1s;
+  box-shadow: 0 4px 0 var(--bg-slate);
+  width: 100%;
+}
+.btn:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+.btn-create {
+  background: var(--g-green);
+  color: white;
+  font-size: 1.2rem;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.join-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-join {
+  background: var(--g-purple);
+  color: white;
+  flex: 1;
+}
+
+.code-input {
+  flex: 2;
+  text-align: center;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* --- MOBILE FIXES --- */
+@media (max-width: 480px) {
+  #main-menu-layer {
+    align-items: flex-start;
+    padding-top: 1rem;
+  }
+  .menu-container {
+    padding-bottom: 3rem; /* Space for scrolling */
+  }
+  .game-title {
+    font-size: 2.5rem;
+  }
+  .join-row {
+    flex-direction: column;
+  }
+  .code-input,
+  .btn-join {
+    width: 100%;
+  }
+}
+
+/* Button States */
+#btn-start.ready-wait {
+  background: #f1c40f !important; /* Yellow */
+  color: #2c3e50 !important;
+  border-color: #d4ac0d !important;
+}
+
+#btn-start.ready-done {
+  background: #2ecc71 !important; /* Green */
+  color: white !important;
+  border-color: #27ae60 !important;
+}
+
+#btn-start.start-disabled {
+  background: #95a5a6 !important; /* Gray */
+  cursor: not-allowed !important;
+  opacity: 0.7;
+  border-color: #7f8c8d !important;
+  pointer-events: none;
+}
+
+#btn-start.start-enabled {
+  background: #2ecc71 !important; /* Green */
+  cursor: pointer;
+  border-color: #27ae60 !important;
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(46, 204, 113, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(46, 204, 113, 0);
+  }
+}

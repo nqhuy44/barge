@@ -63,3 +63,4 @@ web/dist/
 # --- Project Specific ---
 # Ignore the specific bin folder if used by Makefile
 bin/
+draft/

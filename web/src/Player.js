@@ -53,6 +53,9 @@ export class Player {
     this.body.updateMassProperties();
     this.body.allowSleep = false;
     this.world.addBody(this.body);
+
+    // Manual Recoil Listener
+    this.body.addEventListener("collide", (e) => this.handleCollision(e));
   }
 
   initVisuals() {
@@ -245,5 +248,29 @@ export class Player {
     this.visualRoot.position.copy(this.body.position);
     this.visualRoot.position.y -= 1.25; // Reset offset match
     this.visualRoot.quaternion.copy(this.body.quaternion);
+  }
+
+  handleCollision(e) {
+    if (!this.isBarging) return;
+
+    // Get the contact normal relative to the world
+    // Cannon normals point from Body i to Body j
+    let normal = e.contact.ni.clone();
+    if (e.contact.bi === this.body) {
+      normal.negate(normal);
+    }
+
+    // Check if the surface is "Walkable" (Floor/Ramp) vs "Wall"
+    // Ramps usually have a normal Y > 0.5 (45 degrees or less steep)
+    // Walls have low Y (mostly horizontal)
+    if (normal.y > 0.5) {
+      // It's a floor or ramp -> DON'T STOP. Launch!
+      return;
+    }
+
+    // It's a Wall or Obstacle -> Recoil!
+    this.isBarging = false;
+    this.bargeActiveTimer = 0;
+    this.body.velocity.scale(-0.5, this.body.velocity);
   }
 }

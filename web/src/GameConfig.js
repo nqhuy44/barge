@@ -2,9 +2,9 @@ export const GameConfig = {
   // --- DEBUG ---
   // Default should be false for production. Enabled for development.
   debug: {
-    showPhysics: true, // Cannon Debugger Wireframes
-    showStats: true, // Player Physics Tuning GUI
-    showFPS: true, // Performance Stats (FPS)
+    showPhysics: false, // Cannon Debugger Wireframes
+    showStats: false, // Player Physics Tuning GUI
+    showFPS: false, // Performance Stats (FPS)
   },
 
   // --- WORLD ---
@@ -27,8 +27,8 @@ export const GameConfig = {
     moveForce: 4000, // Frictionless movement force (Low inertia)
     damping: 0.95, // 0.98 = Slippery (Ice), 0.90 = Mud
     maxSpeed: 60, // Hard Limit
-    bargeForce: 7500,
-    bargeCooldown: 1.0,
+    bargeForce: 5000,
+    bargeCooldown: 4.0,
     bargeDuration: 0.3,
   },
 };

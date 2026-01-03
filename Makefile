@@ -6,6 +6,9 @@ dev:
 build-web:
 	cd web && npm install && npm run build
 
+run-web:
+	cd web && npm run dev
+
 run: build-web dev
 
 #run frontend and backend without build

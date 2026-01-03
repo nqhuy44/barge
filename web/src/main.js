@@ -7,6 +7,10 @@ import { NetworkManager } from "./NetworkManager.js";
 import { DebugManager } from "./DebugManager.js";
 import { GameConfig } from "./GameConfig.js"; // Import Config
 
+import { UIManager } from "./UIManager.js";
+import { MenuManager } from "./MenuManager.js";
+import i18n from "./Localization.js";
+
 // --- Scene & Camera ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xcccccc);
@@ -60,7 +64,7 @@ const playerPlayerMat = new CANNON.ContactMaterial(
   playerMaterial,
   playerMaterial,
   {
-    friction: 0.3,
+    friction: 0.0, // WAS 0.3 - Prevent sticky combat
     restitution: 0.9,
   }
 );
@@ -69,7 +73,7 @@ const playerObstacleMat = new CANNON.ContactMaterial(
   obstacleMaterial,
   {
     friction: 0.0,
-    restitution: 0.0,
+    restitution: 0.6, // WAS 0.0 - Allow walls to bounce you back
   }
 );
 
@@ -86,20 +90,182 @@ const materials = {
 };
 
 let arena, player, dummy, p1Spawn, p2Spawn, cameraController;
-let network;
+let network, uiManager;
 const remotePlayers = {};
-// Select Random Color from Config Palette
-const palette = GameConfig.game.palette;
-const myColor = palette[Math.floor(Math.random() * palette.length)];
+// Select Random Color from Config Palette (Default)
+// Now managed by UIManager
+let myColor = GameConfig.game.palette[0];
 
-// 1. Setup Networking First
+// 1. Setup Networking & UI
 network = new NetworkManager();
-network.connect();
+uiManager = new UIManager();
+let lastPlayers = [];
 
-// 2. Wait for Game Start (Seed)
+const menuManager = new MenuManager();
+
+// --- MENU HANDLERS ---
+
+// A. Handle Network Success
+network.onRoomJoined((data) => {
+  console.log("✅ Joined Room:", data.roomId);
+  menuManager.hide();
+  uiManager.showLobby();
+  uiManager.setRoomId(data.roomId);
+
+  // Reset diff state
+  lastPlayers = [];
+
+  if (data.isHost) {
+    uiManager.addChatMessage("System", "Room created", null, false);
+  } else {
+    uiManager.addChatMessage(
+      "System",
+      `Joined room ${data.roomId}`,
+      null,
+      false
+    );
+  }
+
+  // Set Initial Button State (Creator is effectively ready and allReady)
+  uiManager.updateActionButton(data.isHost, false, data.isHost);
+});
+
+network.onError((msg) => {
+  console.error("Server Error:", msg);
+  alert(msg); // Show error to user
+});
+
+// B. Handle Menu Actions
+menuManager.onCreateClicked = (name) => {
+  console.log("👑 Create Room Request:", name);
+  // 1. Connect first
+  network
+    .connect()
+    .then(() => {
+      // 2. Send Packet
+      network.sendCreateRoom(name);
+    })
+    .catch((err) => {
+      alert("Connection Failed: " + err);
+    });
+};
+
+menuManager.onJoinClicked = (name, code) => {
+  console.log("▶ Join Room Request:", name, code);
+  network
+    .connect()
+    .then(() => {
+      network.sendJoinRoom(name, code);
+    })
+    .catch((err) => {
+      alert("Connection Failed: " + err);
+    });
+};
+
+// --- Connect UI to Network ---
+uiManager.onColorSelect = (color) => {
+  myColor = color;
+  network.sendPlayerUpdate(color);
+};
+
+uiManager.onActionClick = () => {
+  // Logic: Check if we are Host or Client
+  // For now, we rely on the UI state, but ideally we check our local player object from the server list
+  // HACK: Start Game if button says START, else Toggle Ready
+  const btnText = uiManager.btnStart.innerText;
+  if (btnText.includes("START")) {
+    network.sendStartGame();
+  } else {
+    // Toggle Ready
+    uiManager.isLocalReady = !uiManager.isLocalReady;
+    network.sendReady(uiManager.isLocalReady);
+    uiManager.updateActionButton(false, uiManager.isLocalReady);
+  }
+};
+
+uiManager.onChatSend = (msg) => {
+  network.sendChat(msg);
+  // Optimistic Add
+  // uiManager.addChatMessage("You", msg, myColor);
+};
+
+// --- Network Callbacks ---
+network.onLobbyUpdate((players) => {
+  // FORCE RE-EVALUATE isLocal to handle any type/reference mismatches
+  players.forEach((p) => {
+    if (String(p.id) === String(network.playerId)) {
+      p.isLocal = true;
+    }
+  });
+
+  uiManager.renderPlayerList(players);
+  uiManager.updateColorGrid(players);
+
+  // --- Diff Logic for System Messages ---
+  if (lastPlayers.length > 0) {
+    // 1. Check Joined
+    players.forEach((p) => {
+      if (!lastPlayers.find((lp) => lp.id === p.id)) {
+        uiManager.addChatMessage("System", `${p.name} joined.`, null, false);
+      }
+    });
+    // 2. Check Left
+    lastPlayers.forEach((lp) => {
+      if (!players.find((p) => p.id === lp.id)) {
+        uiManager.addChatMessage("System", `${lp.name} left.`, null, false);
+      }
+    });
+    // 3. Check Ready Status
+    players.forEach((p) => {
+      const old = lastPlayers.find((lp) => lp.id === p.id);
+      if (old && old.isReady !== p.isReady) {
+        const status = p.isReady ? "READY" : "waiting";
+        uiManager.addChatMessage(
+          "System",
+          `${p.name} is ${status}`,
+          null,
+          false
+        );
+      }
+    });
+  }
+
+  // Update lastPlayers (clone to prevent ref issues)
+  lastPlayers = JSON.parse(JSON.stringify(players));
+
+  // Find myself to update Host/Ready button state
+  const me = players.find((p) => p.isLocal);
+  if (me) {
+    // uiManager.setRoomId(me.roomId || "----"); // Removed: roomId not in player object
+
+    // Check if ALL players are ready
+    const allReady = players.every((p) => p.isReady);
+
+    // Update button style based on Host status
+    uiManager.updateActionButton(me.isHost, me.isReady, allReady);
+    // Sync local ready state
+    uiManager.isLocalReady = me.isReady;
+  }
+});
+
+network.onChatMessage((data) => {
+  const isLocal = data.id === network.playerId;
+  uiManager.addChatMessage(
+    data.name || data.id,
+    data.message,
+    data.color,
+    isLocal
+  );
+});
+
 network.onGameStart((serverSeed) => {
+  console.log("Starting Game with seed:", serverSeed);
+  uiManager.hideLobby();
   startGame(serverSeed);
 });
+
+// START CONNECTION - REMOVED (Handled by Menu)
+// network.connect();
 
 network.onMessage((data) => {
   if (remotePlayers[data.id]) {
@@ -123,18 +289,21 @@ network.onMessage((data) => {
     }
   } else {
     // Spawn New Remote Player
-    console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
-    const p = new Player(
-      scene,
-      world,
-      { x: data.x, y: data.y, z: data.z },
-      data.color || 0x00ffff,
-      playerMaterial,
-      false
-    );
-    // Remote players should also use standard mass
-    p.setMass(GameConfig.player.mass);
-    remotePlayers[data.id] = p;
+    // ONLY SPAWN IF GAME HAS STARTED (check if arena exists)
+    if (arena) {
+      console.log(`Spawn Remote Player: ${data.id} (${data.color})`);
+      const p = new Player(
+        scene,
+        world,
+        { x: data.x, y: data.y, z: data.z },
+        data.color || 0x00ffff,
+        playerMaterial,
+        false
+      );
+      // Remote players should also use standard mass
+      p.setMass(GameConfig.player.mass);
+      remotePlayers[data.id] = p;
+    }
   }
 });
 
