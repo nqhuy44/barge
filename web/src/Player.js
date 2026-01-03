@@ -12,14 +12,13 @@ export class Player {
         // FIX: Natural Drag Physics & Soft Cap
         this.stats = {
             mass: 80,
-            moveForce: 7000,    // Snappy acceleration
-            damping: 0.9,       // High drag
-            maxSpeed: 20,       // Soft Cap
-            bargeForce: 5000,   // Reduced from 14000 to prevent flying off map (Target Speed ~60)
+            moveForce: 20000,   // High acceleration
+            damping: 0.9,       // 0.9 = Snappy/Tight stop (Mud-like). Change to 0.99 for Ice.
+            maxSpeed: 20,       // Strict Speed Limit
+            bargeForce: 7500,
             bargeCooldown: 1.0,
-            bargeDuration: 0.3  // Short visual burst
+            bargeDuration: 0.3
         };
-        
         // FIX 2: Input Stack (Last Key Wins)
         this.inputStack = []; 
         this.bargeTimer = 0;   // Cooldown timer
@@ -45,7 +44,7 @@ export class Player {
         this.body = new CANNON.Body({
             mass: this.stats.mass,
             shape: shape,
-            linearDamping: this.stats.damping,
+            linearDamping: 0,
             position: new CANNON.Vec3(pos.x, pos.y, pos.z),
             material: this.material,
         });
@@ -106,132 +105,108 @@ export class Player {
     }
 
     update(dt) {
-        // Input Vector (Last Key Wins)
+        // --- 1. INPUT (Keep existing logic) ---
         const inputVector = new CANNON.Vec3(0, 0, 0);
-
         const lastX = this.inputStack.slice().reverse().find(k => k === 'ArrowLeft' || k === 'ArrowRight');
         if (lastX === 'ArrowLeft') inputVector.x -= 1;
         if (lastX === 'ArrowRight') inputVector.x += 1;
-
         const lastZ = this.inputStack.slice().reverse().find(k => k === 'ArrowUp' || k === 'ArrowDown');
         if (lastZ === 'ArrowUp') inputVector.z -= 1;
         if (lastZ === 'ArrowDown') inputVector.z += 1;
 
-        // Isometric Rotation (-45 deg)
+        // Isometric Rotate
         const angle = -Math.PI / 4; 
         const sin = Math.sin(angle);
         const cos = Math.cos(angle);
-        
         const finalX = inputVector.x * cos - inputVector.z * sin; 
         const finalZ = inputVector.x * sin + inputVector.z * cos;
         inputVector.set(finalX, 0, finalZ);
+        if (inputVector.lengthSquared() > 0) inputVector.normalize();
 
+        // Rotate Visuals
         if (inputVector.lengthSquared() > 0) {
-            inputVector.normalize();
-        }
-
-        // Rotate Body
-        if (inputVector.lengthSquared() > 0) {
-            const angle = Math.atan2(inputVector.x, inputVector.z);
+            const rotAngle = Math.atan2(inputVector.x, inputVector.z);
             const targetQuat = new CANNON.Quaternion();
-            targetQuat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), angle);
+            targetQuat.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rotAngle);
             this.body.quaternion.slerp(targetQuat, 0.1, this.body.quaternion);
         }
 
-        // Physics Apply: SOFT SPEED CAP
-        this.body.linearDamping = this.stats.damping;
-        const currentSpeed = this.body.velocity.length();
+        // --- 2. DECOUPLED PHYSICS CORE ---
+
+        // A. Disable System Damping -> Heavy Gravity works fully
+        this.body.linearDamping = 0;
+
+        const isGrounded = this.body.position.y < 2.5;
+
+        // B. Apply Terrain Damping (Independent of Speed)
+        // 0.9 = Stops fast. 0.99 = Slides far.
+        // Math.pow ensures consistent behavior across 60/144Hz.
+        const baseDamping = isGrounded ? this.stats.damping : 0.99; 
+        const timeFactor = dt * 60;
+        const effectiveDamping = Math.pow(baseDamping, timeFactor);
+
+        this.body.velocity.x *= effectiveDamping;
+        this.body.velocity.z *= effectiveDamping;
+
+        // C. Apply Force (Limited by MaxSpeed, NOT Friction)
         const isMoving = inputVector.lengthSquared() > 0;
-
-        // Ground Check (Raycast down)
-        // Radius 1.25. Check slightly further (1.4) to tolerate small gaps.
-        const rayFrom = this.body.position;
-        const rayTo = new CANNON.Vec3(rayFrom.x, rayFrom.y - 1.4, rayFrom.z);
-        const rayResult = new CANNON.RaycastResult();
-        this.world.raycastClosest(rayFrom, rayTo, {
-            skipBackfaces: true,
-            collisionFilterMask: 1, // Default Group
-            collisionFilterGroup: 1 
-        }, rayResult);
-
-        const isGrounded = rayResult.hasHit;
-        const airMultiplier = isGrounded ? 1.0 : 0.1; // 10% control in air
-
-        // Apply Force ONLY if below Max Speed (Soft Cap)
-        // This allows impulses (Barge/Collision) to push velocity WAY higher than 20.
-        // But the player's engine stops adding force once 20 is reached.
-        if (isMoving && currentSpeed < this.stats.maxSpeed) {
+        
+        if (isMoving) {
             this.body.wakeUp();
-            const force = new CANNON.Vec3(
-                inputVector.x * this.stats.moveForce * airMultiplier,
-                0,
-                inputVector.z * this.stats.moveForce * airMultiplier
-            );
-            this.body.applyForce(force, this.body.position);
-        } else if (isMoving) {
-            // Wake up even if speed capped, to keep simulation active
-            this.body.wakeUp();
+            
+            // Check Current Speed
+            const currentVel = new CANNON.Vec3(this.body.velocity.x, 0, this.body.velocity.z);
+            const currentSpeed = currentVel.length();
+
+            // SOFT CAP: Only accelerate if below Max Speed
+            if (currentSpeed < this.stats.maxSpeed) {
+                const forceMag = isGrounded ? this.stats.moveForce : (this.stats.moveForce * 0.3);
+                
+                const force = new CANNON.Vec3(
+                    inputVector.x * forceMag,
+                    0,
+                    inputVector.z * forceMag
+                );
+                this.body.applyForce(force, this.body.position);
+            }
         }
 
+        // --- 3. BARGE & ANIMATION (Keep existing) ---
         // Barge Logic
         if (this.bargeTimer > 0) this.bargeTimer -= dt;
         if (this.bargeActiveTimer > 0) {
             this.bargeActiveTimer -= dt;
             if (this.bargeActiveTimer <= 0) {
                 this.isBarging = false;
-                // Reset scale on finish
                 this.squashScale.set(1, 1, 1); 
             }
         }
-
         if (this.input.barge && this.bargeTimer <= 0) {
-            // Activate Barge
             this.isBarging = true;
-            this.bargeActiveTimer = this.stats.bargeDuration; // 0.5s Active
+            this.bargeActiveTimer = this.stats.bargeDuration;
             this.bargeTimer = this.stats.bargeCooldown;
-
-            // Apply Massive Impulse
             let bargeDir = inputVector.clone();
             if (bargeDir.lengthSquared() === 0) {
                 const forward = new CANNON.Vec3(0, 0, 1);
                 this.body.quaternion.vmult(forward, bargeDir);
             }
             bargeDir.normalize();
-
+            
             const impulse = bargeDir.scale(this.stats.bargeForce);
             this.body.applyImpulse(impulse, this.body.position);
-            
-            // Visual Flare
             this.squashScale.set(1.4, 0.6, 1.4);
         }
 
-        // Removed Hard Speed Clamp completely.
-        // Damping (0.9) will naturally decay any speed over 20. 
-        
         // Animation
         this.animTime += dt;
-        
-        const baseScale = 1.0; 
-        const targetScale = new THREE.Vector3(baseScale, baseScale, baseScale);
-
+        const targetScale = new THREE.Vector3(1, 1, 1);
         this.squashScale.lerp(targetScale, 0.1);
         const breathe = 1 + Math.sin(this.animTime * 3) * 0.03;
-        
-        // Scale the SKIN, not the ROOT
         this.skinMesh.scale.copy(this.squashScale);
-        if (!isMoving) {
-             this.skinMesh.scale.y *= breathe;
-        }
+        if (!isMoving) this.skinMesh.scale.y *= breathe;
 
-        // Sync Position (Root follows Body)
         this.visualRoot.position.copy(this.body.position);
-        
-        // Offset: 
-        // Body Y is Center of Sphere (Radius 1.25).
-        // Feet are at BodyY - 1.25.
-        // Mesh Pivot is at Feet.
         this.visualRoot.position.y -= 1.25; 
-
         this.visualRoot.quaternion.copy(this.body.quaternion);
     }
 

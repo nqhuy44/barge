@@ -38,7 +38,7 @@ scene.add(directionalLight);
 
 // --- Physics World ---
 const world = new CANNON.World();
-world.gravity.set(0, -9.82, 0);
+world.gravity.set(0, -30, 0);
 
 // --- Debug Tools ---
 const stats = new Stats();

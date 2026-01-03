@@ -129,9 +129,12 @@ export class Arena {
 
     // --- MAP 3: SQUARE (Scattered Tactical Terrain) ---
     createRandomSquareMap() {
-        console.log(`Generating SPARSE TERRAIN map (Seed: ${this.seed})`);
+        // 1. Calculate Random Density for this match (0% to 20%)
+        const density = this.seededRandom() * 0.20;
         
-        // 1. Aesthetics
+        console.log(`Generating TERRAIN map (Seed: ${this.seed}, Density: ${(density*100).toFixed(1)}%)`);
+        
+        // 2. Aesthetics
         const FLOOR_COLOR = 0xeeeeee;
         const WALL_COLOR = 0xffffff; 
         
@@ -139,22 +142,22 @@ export class Arena {
         const obstacleMaterial = this.materials.obstacle;
 
         // --- CONFIGURATION ---
-        const WALL_HEIGHT = 1.5;     // 1.5m Height
+        const WALL_HEIGHT = 2;
         const RAMP_THICKNESS = 20;   
         const GRID_SIZE = 8;         
         
-        // 1. BOUNDS FIX: Retract range to ensure walls stay on floor
+        // Bounds: Radius - 6 (Keep walls inside)
         const spawnRange = this.radius - 6; 
 
-        // 2. DENSITY REDUCTION: Drop to 20% coverage
+        // 3. COUNT BASED ON RANDOM DENSITY
         const totalArea = (spawnRange * 2) * (spawnRange * 2);
         const cellArea = GRID_SIZE * GRID_SIZE;
-        const OBSTACLE_COUNT = Math.floor((totalArea / cellArea) * 0.20); 
+        const OBSTACLE_COUNT = Math.floor((totalArea / cellArea) * density); 
 
         for (let i = 0; i < OBSTACLE_COUNT; i++) {
             // DIMENSIONS
             const length = 4 + this.seededRandom() * 6; // 4-10m
-            const width = 5;                            // Fixed 5m Width
+            const width = 1 + this.seededRandom() * 3;  // 1-4m
             const isHorizontal = this.seededRandom() > 0.5;
 
             const size = {
@@ -183,7 +186,7 @@ export class Arena {
                 material: obstacleMaterial
             });
 
-            // ATTACHED RAMP (20% Chance)
+            // ATTACHED RAMP (20% Chance - Keep this relative to wall count)
             if (this.seededRandom() < 0.2) {
                 const rampRun = 2 + this.seededRandom() * 2;
                 const rampRise = WALL_HEIGHT;
@@ -196,7 +199,7 @@ export class Arena {
 
                 const dir = this.seededRandom() > 0.5 ? 1 : -1;
                 let rampPos, rampRot, rampSize;
-                const rampWidth = width; // Matches fixed 5m width
+                const rampWidth = width;
 
                 if (isHorizontal) {
                     const centerX = x + ((length / 2) + (rampRun / 2) - shiftH) * dir;
