@@ -107,7 +107,7 @@ let gameScores = {}; // Key: Player Name, Value: Score
 
 let isRespawning = false; // Prevent death loop
 
-const SEND_INTERVAL = 50; // 50ms = 20 packets/sec
+const SEND_INTERVAL = 30; // 30ms = 33 packets/sec
 let lastSendTime = 0;
 
 const menuManager = new MenuManager();
@@ -148,6 +148,11 @@ uiManager.onActionClick = () => {
 // FIX: Bind Color Selection
 uiManager.onColorSelect = (color) => {
   network.sendPlayerUpdate(color);
+};
+
+// FIX: Bind Chat Send
+uiManager.onChatSend = (msg) => {
+  network.sendChat(msg);
 };
 
 // REMOVED: Auto-connect at bottom. Connection is now on-demand via Menu.
