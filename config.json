@@ -1,0 +1,6 @@
+{
+  "port": ":8080",
+  "game_duration": 10,
+  "base_radius": 17.0,
+  "radius_step": 3.0
+}

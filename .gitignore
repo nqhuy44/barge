@@ -64,3 +64,4 @@ web/dist/
 # Ignore the specific bin folder if used by Makefile
 bin/
 draft/
+barge-server

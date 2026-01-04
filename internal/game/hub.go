@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/nqhuy44/barge/internal/config"
 )
 
 var upgrader = websocket.Upgrader{
@@ -170,9 +171,10 @@ type Hub struct {
 	UnregisterRoom chan *Room
 	Mutex          sync.Mutex
 	MapSeed        int64
+	Config         *config.Config
 }
 
-func NewHub() *Hub {
+func NewHub(cfg *config.Config) *Hub {
 	rand.Seed(time.Now().UnixNano())
 	return &Hub{
 		Rooms:          make(map[string]*Room),
@@ -181,6 +183,7 @@ func NewHub() *Hub {
 		StartGame:      make(chan *Client),
 		UnregisterRoom: make(chan *Room),
 		MapSeed:        rand.Int63n(100000), // Secure 32-bit range for JS
+		Config:         cfg,
 	}
 }
 
@@ -254,12 +257,20 @@ func (h *Hub) Run() {
 					room.Status = RoomStatusPlaying
 					log.Printf("Room %s status set to PLAYING", room.ID)
 					
+					// Flexible game duration
+					duration := time.Duration(h.Config.GameDuration) * time.Second
+
 					// Dynamic Map Radius Calculation
-					// Formula: Base 12 + (Players - 1) * 2.5
+					// Formula: Base + (Players - 1) * Step
 					playerCount := len(room.Clients)
-					mapRadius := 17.0 + (float64(playerCount)-1.0)*3
-					if mapRadius < 17.0 {
-						mapRadius = 17.0
+					
+					// Use Config Values
+					baseRadius := h.Config.BaseRadius
+					radiusStep := h.Config.RadiusStep
+					
+					mapRadius := baseRadius + (float64(playerCount)-1.0)*radiusStep
+					if mapRadius < baseRadius {
+						mapRadius = baseRadius
 					}
 					
 					// Generate Fresh Seed for this Match
@@ -271,17 +282,17 @@ func (h *Hub) Run() {
 						"type":      "GAME_START",
 						"id":        client.ID,
 						"seed":      matchSeed,
-						"duration":  GameDuration.Seconds(),
+						"duration":  h.Config.GameDuration, // Send int seconds to client
 						"mapRadius": mapRadius,
 					}
 					jsonMsg, _ := json.Marshal(msg)
 					room.Broadcast <- jsonMsg
 
-					// Start 5 Minute Timer
+					// Start Timer
 					if room.GameTimer != nil {
 						room.GameTimer.Stop()
 					}
-					room.GameTimer = time.AfterFunc(GameDuration, func() {
+					room.GameTimer = time.AfterFunc(duration, func() {
 						room.endGame()
 					})
 				}

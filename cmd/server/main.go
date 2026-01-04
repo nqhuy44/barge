@@ -9,20 +9,37 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nqhuy44/barge/internal/config"
 	"github.com/nqhuy44/barge/internal/game"
 )
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	// 1. Load Config
+	cfg, err := config.LoadConfig("config.json")
+	if err != nil {
+		log.Printf("Warning: Could not load config.json (%v). Using defaults.", err)
+		cfg = &config.Config{
+			Port:         ":8080",
+			GameDuration: 300,
+			BaseRadius:   17.0,
+			RadiusStep:   3.0,
+		}
+	}
+	
+	// Environment Variable Override (Optional)
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		cfg.Port = ":" + envPort
+	}
+	// Ensure port starts with :
+	if len(cfg.Port) > 0 && cfg.Port[0] != ':' {
+		cfg.Port = ":" + cfg.Port
 	}
 
-	// 1. Initialize Game Hub
-	hub := game.NewHub()
+	// 2. Initialize Game Hub
+	hub := game.NewHub(cfg)
 	go hub.Run()
 
-	// 2. Setup Static Files
+	// 3. Setup Static Files
 	staticDir := "web/dist"
 	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
 		if _, err := os.Stat("../web/dist"); err == nil {
@@ -34,18 +51,18 @@ func main() {
 	fs := http.FileServer(http.Dir(staticDir))
 	http.Handle("/", fs)
 
-	// 3. Setup WebSocket Route
+	// 4. Setup WebSocket Route
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		game.ServeWs(hub, w, r)
 	})
 
 	srv := &http.Server{
-		Addr: ":" + port,
+		Addr: cfg.Port,
 	}
 
 	// 4. Start Server
 	go func() {
-		log.Printf("Server starting on port %s...", port)
+		log.Printf("Server starting on port %s...", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}

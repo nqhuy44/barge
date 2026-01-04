@@ -1,0 +1,14 @@
+[Unit]
+Description=Barge Game Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/barge
+ExecStart=/var/www/barge/barge-server
+Restart=on-failure
+Environment=PORT=8080
+
+[Install]
+WantedBy=multi-user.target
