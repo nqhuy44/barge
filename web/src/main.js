@@ -249,7 +249,8 @@ network.onGameStart((data) => {
     myColor = me.color;
   }
 
-  startGame(serverSeed);
+  const mapRadius = data.mapRadius;
+  startGame(serverSeed, mapRadius);
 });
 
 // START CONNECTION - REMOVED (Handled by Menu)
@@ -379,7 +380,7 @@ network.onMessage((data) => {
   }
 });
 
-function startGame(serverSeed) {
+function startGame(serverSeed, mapRadiusOverride) {
   try {
     console.log("Initializing Arena with Seed:" + serverSeed);
     // Use RANDOM_SQUARE with Server Seed
@@ -389,7 +390,8 @@ function startGame(serverSeed) {
       materials,
       GameConfig.game.playerCount,
       "RANDOM_SQUARE",
-      serverSeed
+      serverSeed,
+      mapRadiusOverride
     );
 
     // 2. Players (Use Random Spawn)

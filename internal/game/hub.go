@@ -180,7 +180,7 @@ func NewHub() *Hub {
 		JoinRoom:       make(chan *JoinRequest),
 		StartGame:      make(chan *Client),
 		UnregisterRoom: make(chan *Room),
-		MapSeed:        time.Now().UnixNano(),
+		MapSeed:        rand.Int63n(100000), // Secure 32-bit range for JS
 	}
 }
 
@@ -254,11 +254,25 @@ func (h *Hub) Run() {
 					room.Status = RoomStatusPlaying
 					log.Printf("Room %s status set to PLAYING", room.ID)
 					
+					// Dynamic Map Radius Calculation
+					// Formula: Base 12 + (Players - 1) * 2.5
+					playerCount := len(room.Clients)
+					mapRadius := 17.0 + (float64(playerCount)-1.0)*3
+					if mapRadius < 17.0 {
+						mapRadius = 17.0
+					}
+					
+					// Generate Fresh Seed for this Match
+					matchSeed := rand.Int63n(100000)
+					
+					log.Printf("Starting Game: Players=%d, Radius=%.2f, Seed=%d", playerCount, mapRadius, matchSeed)
+
 					msg := map[string]interface{}{
-						"type":     "GAME_START",
-						"id":       client.ID,
-						"seed":     h.MapSeed,
-						"duration": GameDuration.Seconds(),
+						"type":      "GAME_START",
+						"id":        client.ID,
+						"seed":      matchSeed,
+						"duration":  GameDuration.Seconds(),
+						"mapRadius": mapRadius,
 					}
 					jsonMsg, _ := json.Marshal(msg)
 					room.Broadcast <- jsonMsg
