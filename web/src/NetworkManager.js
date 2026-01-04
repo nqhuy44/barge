@@ -66,7 +66,7 @@ export class NetworkManager {
           case "GAME_START":
             console.log("🚀 Game Started! Seed:", data.seed);
             if (this.gameStartCallback) {
-              this.gameStartCallback(data.seed);
+              this.gameStartCallback(data);
             }
             break;
 
@@ -301,6 +301,29 @@ export class NetworkManager {
           type: "CREATE_ROOM",
           id: this.playerId,
           name: name,
+        })
+      );
+    }
+  }
+
+  sendHit(targetId) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(
+        JSON.stringify({
+          type: "HIT",
+          id: this.playerId,
+          targetId: targetId,
+        })
+      );
+    }
+  }
+
+  sendDeath() {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(
+        JSON.stringify({
+          type: "DEATH",
+          id: this.playerId,
         })
       );
     }

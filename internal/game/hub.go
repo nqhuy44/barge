@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -24,12 +25,16 @@ const (
 )
 
 type Client struct {
-	Hub   *Hub
-	Conn  *websocket.Conn
-	Send  chan []byte
-	ID    string
-	Room  *Room
-	Name  string
+	Hub            *Hub
+	Conn           *websocket.Conn
+	Send           chan []byte
+	ID             string
+	Room           *Room
+	Name           string
+	LastAttackerID string
+	LastHitTime    int64
+	Score          int
+	IsDead         bool
 }
 
 type Room struct {
@@ -40,6 +45,51 @@ type Room struct {
 	Unregister chan *Client
 	Hub       *Hub
 	Status    string
+	GameTimer *time.Timer
+}
+
+type PlayerScore struct {
+	Name  string `json:"name"`
+	Score int    `json:"score"`
+}
+
+func (r *Room) endGame() {
+	r.Status = RoomStatusWaiting
+	if r.GameTimer != nil {
+		r.GameTimer.Stop()
+	}
+
+	// 1. Collect Scores
+	var scores []PlayerScore
+	for client := range r.Clients {
+		scores = append(scores, PlayerScore{
+			Name:  client.Name,
+			Score: client.Score,
+		})
+	}
+
+	// 2. Sort Descending
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].Score > scores[j].Score
+	})
+
+	// 3. Determine Winner
+	winnerName := "Nobody"
+	// winnerColor := "#000" // Backend doesn't store color yet
+	if len(scores) > 0 {
+		winnerName = scores[0].Name
+	}
+
+	// 4. Broadcast GAME_OVER
+	msg := map[string]interface{}{
+		"type":        "GAME_OVER",
+		"winnerName":  winnerName,
+		"leaderboard": scores,
+	}
+	jsonMsg, _ := json.Marshal(msg)
+	r.Broadcast <- jsonMsg
+	
+	log.Printf("Room %s GAME OVER. Winner: %s", r.ID, winnerName)
 }
 
 func NewRoom(id string, hub *Hub) *Room {
@@ -205,12 +255,21 @@ func (h *Hub) Run() {
 					log.Printf("Room %s status set to PLAYING", room.ID)
 					
 					msg := map[string]interface{}{
-						"type": "GAME_START",
-						"id": client.ID,
-						"seed": h.MapSeed, 
+						"type":     "GAME_START",
+						"id":       client.ID,
+						"seed":     h.MapSeed,
+						"duration": GameDuration.Seconds(),
 					}
 					jsonMsg, _ := json.Marshal(msg)
 					room.Broadcast <- jsonMsg
+
+					// Start 5 Minute Timer
+					if room.GameTimer != nil {
+						room.GameTimer.Stop()
+					}
+					room.GameTimer = time.AfterFunc(GameDuration, func() {
+						room.endGame()
+					})
 				}
 			}
 			h.Mutex.Unlock()
@@ -293,6 +352,121 @@ func (c *Client) readPump() {
 		case "GAME_START":
 			c.Hub.StartGame <- c
 
+		case "HIT":
+			// Received from Attacker: { type: "HIT", targetId: "xyz" }
+			if c.Room == nil {
+				continue
+			}
+			targetId, _ := msgMap["targetId"].(string)
+			
+			// Find Target in Room (Linear search for now, could be map)
+			for target := range c.Room.Clients {
+				if target.ID == targetId {
+					// Register Hit
+					target.LastAttackerID = c.ID
+					target.LastHitTime = time.Now().UnixMilli() // Milliseconds
+					// fmt.Printf("Hit Registered: %s -> %s at %d\n", c.Name, target.Name, target.LastHitTime)
+					break
+				}
+			}
+
+		case "DEATH":
+			// Received from Victim: { type: "DEATH" }
+			if c.Room == nil || c.IsDead {
+				continue
+			}
+			c.IsDead = true
+			
+			// CHECK KILL CONDITION
+			now := time.Now().UnixMilli()
+			timeDiff := now - c.LastHitTime
+			
+			var killerName string = ""
+			var killerScore int = 0
+			var feedType string = "suicide"
+			
+			// 5.0 Second Window (5000ms)
+			log.Printf("Death check: LastAttacker=%s, TimeDiff=%dms", c.LastAttackerID, timeDiff)
+			if c.LastAttackerID != "" && timeDiff <= 5000 {
+				// FIND KILLER
+				for attacker := range c.Room.Clients {
+					if attacker.ID == c.LastAttackerID {
+						attacker.Score++
+						killerName = attacker.Name
+						killerScore = attacker.Score
+						feedType = "shove"
+						break
+					}
+				}
+			}
+			
+			// Broadcast KILL_FEED
+			feedMsg := map[string]interface{}{
+				"type": "KILL_FEED",
+				"killer": killerName,
+				"victim": c.Name,
+				"feedType": feedType,
+				"killerScore": killerScore,
+			}
+			jsonFeed, _ := json.Marshal(feedMsg)
+			c.Room.Broadcast <- jsonFeed
+			
+			// Reset Hit State
+			c.LastAttackerID = ""
+			
+			// RESPAWN LOGIC
+			respawnSeconds := 5
+			
+			// 1. Send YOU_DIED to Victim
+			msgDied := map[string]interface{}{
+				"type": "YOU_DIED",
+				"respawnIn": respawnSeconds,
+			}
+			jsonDied, _ := json.Marshal(msgDied)
+			
+			select {
+			case c.Send <- jsonDied:
+			default:
+			}
+
+			// 2. Start Timer Goroutine
+			go func(client *Client) {
+				defer func() {
+					if r := recover(); r != nil {
+						// Client disconnected
+					}
+				}()
+
+				time.Sleep(time.Duration(respawnSeconds) * time.Second)
+				
+				// 3. Send RESPAWN_NOW
+				// Randomized spawn around center (-10 to 10)
+				rx := (rand.Float64() * 20) - 10
+				rz := (rand.Float64() * 20) - 10
+				
+				msgRespawn := map[string]interface{}{
+					"type": "RESPAWN_NOW",
+					"x": rx,
+					"y": 5.0,
+					"z": rz,
+				}
+				jsonResp, _ := json.Marshal(msgRespawn)
+				
+				client.Send <- jsonResp
+			}(c)
+
+		case "STATE":
+			// 1. Reset IsDead if back on stage
+			y, _ := msgMap["y"].(float64)
+			if y > 0 {
+				c.IsDead = false
+			}
+
+			// 2. Forward Message
+			if c.Room != nil {
+				c.Room.Broadcast <- message
+			}
+
 		default:
 			// Forward to room
 			if c.Room != nil {
@@ -306,21 +480,15 @@ func (c *Client) writePump() {
 	defer func() {
 		c.Conn.Close()
 	}()
-	for {
-		select {
-		case message, ok := <-c.Send:
-			if !ok {
-				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			w, err := c.Conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			w.Write(message)
-			if err := w.Close(); err != nil {
-				return
-			}
+	for message := range c.Send {
+		w, err := c.Conn.NextWriter(websocket.TextMessage)
+		if err != nil {
+			return
+		}
+		w.Write(message)
+		if err := w.Close(); err != nil {
+			return
 		}
 	}
+	c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 }

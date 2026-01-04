@@ -63,6 +63,45 @@ export class UIManager {
         this.onActionClick();
       }
     });
+    // Language Toggle
+    const btnEn = document.getElementById("btn-lang-en");
+    const btnVi = document.getElementById("btn-lang-vi");
+
+    if (btnEn) {
+      btnEn.addEventListener("click", () => {
+        i18n.setLanguage("en");
+        // Re-render local dynamic UI
+        const me = this.lastPlayers
+          ? this.lastPlayers.find((p) => p.isLocal)
+          : null;
+        if (this.lastPlayers) {
+          this.renderPlayerList(this.lastPlayers);
+          this.updateColorGrid(this.lastPlayers);
+          // Update Action Button Text
+          if (me) {
+            const allReady = this.lastPlayers.every((p) => p.isReady);
+            this.updateActionButton(me.isHost, me.isReady, allReady);
+          }
+        }
+      });
+    }
+    if (btnVi) {
+      btnVi.addEventListener("click", () => {
+        i18n.setLanguage("vi");
+        // Re-render local dynamic UI
+        const me = this.lastPlayers
+          ? this.lastPlayers.find((p) => p.isLocal)
+          : null;
+        if (this.lastPlayers) {
+          this.renderPlayerList(this.lastPlayers);
+          this.updateColorGrid(this.lastPlayers);
+          if (me) {
+            const allReady = this.lastPlayers.every((p) => p.isReady);
+            this.updateActionButton(me.isHost, me.isReady, allReady);
+          }
+        }
+      });
+    }
   }
 
   // --- 2. RENDER LOGIC ---
@@ -112,6 +151,7 @@ export class UIManager {
   }
 
   renderPlayerList(players) {
+    this.lastPlayers = players; // Store for re-render
     this.playerList.innerHTML = "";
 
     // Update Header Counts
@@ -132,7 +172,9 @@ export class UIManager {
       // Avatar Color
       const avColor = p.color || "#ccc";
       const nameSuffix = p.isLocal
-        ? ` <span style="color: #64748b; font-size: 0.9em;">(You)</span>`
+        ? ` <span style="color: #64748b; font-size: 0.9em;">${i18n.t(
+            "game.player_you"
+          )}</span>`
         : "";
       const hostTag = p.isHost ? `<div class="p-host">HOST</div>` : "";
 

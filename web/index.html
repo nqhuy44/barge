@@ -77,13 +77,18 @@
           </div>
         </div>
 
+        <div class="lang-toggle" style="text-align: center; margin-top: 1rem">
+          <button id="btn-lang-en" class="lang-btn">EN</button> |
+          <button id="btn-lang-vi" class="lang-btn">VI</button>
+        </div>
+
         <div
           style="
             text-align: center;
             font-size: 0.8rem;
             color: #94a3b8;
             font-weight: 500;
-            margin-top: 1rem;
+            margin-top: 0.5rem;
           "
           data-i18n="menu.footer"
         >
@@ -92,6 +97,14 @@
       </div>
     </div>
     <div id="ui-layer" class="hidden">
+      <!-- ... (Keep existing UI layer structure logic, I will only target the changed parts in separate chunks if needed, but since I can't do multiple chunks easily without a known context, I'll stick to replacing the footer first then another call for the screens) -> Wait, I need to use MULTI replace if I want to do it in one go. Using multi_replace_file_content.
+      
+      Actually, let's use replace_file_content for the footer first.
+      Then another one for the screens.
+      
+      Wait, I will use multi_replace_file_content to do it all at once to be efficient.
+      -->
+
       <div class="container">
         <div class="toy-panel header-panel">
           <div class="room-info">
@@ -203,7 +216,84 @@
         </div>
       </div>
     </div>
-    <div id="app"></div>
+    <!-- GAME HUD LAYER -->
+    <div id="game-ui-layer" class="hidden">
+      <!-- Timer -->
+      <div class="game-timer-box">
+        <span class="timer-icon"></span>
+        <span class="timer-val" id="timer-val">00:00</span>
+      </div>
+
+      <!-- Kill Feed -->
+      <div class="kill-feed" id="kill-feed">
+        <!-- Dynamic Feed Items -->
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="leaderboard">
+        <div class="lb-header"><span>Player</span> <span>Kills</span></div>
+        <div id="leaderboard-list">
+          <!-- Dynamic Rows -->
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-hint" id="controls-hint">
+        <div class="key-group">
+          <span class="key-label" data-i18n="game.controls_move">Move</span>
+          <div class="keycap">↑</div>
+          <div class="keycap">↓</div>
+          <div class="keycap">←</div>
+          <div class="keycap">→</div>
+        </div>
+        <div class="key-group">
+          <span class="key-label" data-i18n="game.controls_charge">Charge</span>
+          <div class="keycap space">SPACE</div>
+        </div>
+      </div>
+    </div>
+    <!-- DEATH SCREEN OVERLAY -->
+    <div id="death-layer" class="hidden">
+      <div class="fullscreen-overlay">
+        <div class="death-card">
+          <div class="death-title" data-i18n="game.death_title">
+            BỊ HÚC VĂNG!
+          </div>
+          <div class="death-subtitle">
+            <span data-i18n="game.death_countdown">Hồi sinh trong</span>
+            <span id="respawn-timer">3</span>...
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- GAME OVER SCREEN (Hidden by default) -->
+    <div id="game-over-layer" class="hidden">
+      <div class="fullscreen-overlay">
+        <div class="game-over-card">
+          <div class="go-header">
+            <div class="go-title" data-i18n="game.game_over_title">
+              CHIẾN THẮNG!
+            </div>
+            <div class="go-winner-badge" id="go-winner">🏆 PlayerOne</div>
+          </div>
+          <div class="go-body">
+            <div class="section-title" data-i18n="game.final_leaderboard">
+              BẢNG XẾP HẠNG CUỐI CÙNG
+            </div>
+            <div id="go-leaderboard-list">
+              <!-- Dynamic Rows -->
+            </div>
+            <button
+              class="go-btn"
+              id="btn-back-lobby"
+              data-i18n="game.back_to_lobby"
+            >
+              VỀ SẢNH CHỜ ▶
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

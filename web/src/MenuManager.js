@@ -1,3 +1,5 @@
+import i18n from "./Localization.js";
+
 export class MenuManager {
   constructor() {
     // 1. DOM Elements
@@ -70,7 +72,7 @@ export class MenuManager {
   validateName() {
     const raw = this.elemNameInput.value.trim();
     if (raw.length === 0) {
-      alert("Please enter your name!");
+      alert(i18n.t("menu.error_name_empty"));
       this.elemNameInput.focus();
       return null;
     }
@@ -81,7 +83,7 @@ export class MenuManager {
   validateCode() {
     const raw = this.elemCodeInput.value.trim();
     if (raw.length !== 6) {
-      alert("Room code must be 6 digits!");
+      alert(i18n.t("menu.error_code_invalid"));
       this.elemCodeInput.focus();
       return null;
     }

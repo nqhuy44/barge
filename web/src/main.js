@@ -8,6 +8,7 @@ import { DebugManager } from "./DebugManager.js";
 import { GameConfig } from "./GameConfig.js"; // Import Config
 
 import { UIManager } from "./UIManager.js";
+import { HUDManager } from "./HUDManager.js";
 import { MenuManager } from "./MenuManager.js";
 import i18n from "./Localization.js";
 
@@ -99,95 +100,54 @@ let myColor = GameConfig.game.palette[0];
 // 1. Setup Networking & UI
 network = new NetworkManager();
 uiManager = new UIManager();
+const hudManager = new HUDManager();
 let lastPlayers = [];
+let lobbyPlayers = []; // Store latest lobby state for game start
+let gameScores = {}; // Key: Player Name, Value: Score
+
+let isRespawning = false; // Prevent death loop
 
 const menuManager = new MenuManager();
 
 // --- MENU HANDLERS ---
+menuManager.onCreateClicked = async (name) => {
+  console.log(`[Main] Creating Room for ${name}`);
+  await network.connect();
+  network.sendCreateRoom(name);
+};
 
-// A. Handle Network Success
+menuManager.onJoinClicked = async (name, code) => {
+  console.log(`[Main] Joining Room ${code} as ${name}`);
+  await network.connect();
+  network.sendJoinRoom(name, code);
+};
+
 network.onRoomJoined((data) => {
-  console.log("✅ Joined Room:", data.roomId);
+  console.log("Joined Room!", data);
   menuManager.hide();
   uiManager.showLobby();
   uiManager.setRoomId(data.roomId);
-
-  // Reset diff state
-  lastPlayers = [];
-
-  if (data.isHost) {
-    uiManager.addChatMessage("System", "Room created", null, false);
-  } else {
-    uiManager.addChatMessage(
-      "System",
-      `Joined room ${data.roomId}`,
-      null,
-      false
-    );
-  }
-
-  // Set Initial Button State (Creator is effectively ready and allReady)
-  uiManager.updateActionButton(data.isHost, false, data.isHost);
 });
-
-network.onError((msg) => {
-  console.error("Server Error:", msg);
-  alert(msg); // Show error to user
-});
-
-// B. Handle Menu Actions
-menuManager.onCreateClicked = (name) => {
-  console.log("👑 Create Room Request:", name);
-  // 1. Connect first
-  network
-    .connect()
-    .then(() => {
-      // 2. Send Packet
-      network.sendCreateRoom(name);
-    })
-    .catch((err) => {
-      alert("Connection Failed: " + err);
-    });
-};
-
-menuManager.onJoinClicked = (name, code) => {
-  console.log("▶ Join Room Request:", name, code);
-  network
-    .connect()
-    .then(() => {
-      network.sendJoinRoom(name, code);
-    })
-    .catch((err) => {
-      alert("Connection Failed: " + err);
-    });
-};
-
-// --- Connect UI to Network ---
-uiManager.onColorSelect = (color) => {
-  myColor = color;
-  network.sendPlayerUpdate(color);
-};
 
 uiManager.onActionClick = () => {
-  // Logic: Check if we are Host or Client
-  // For now, we rely on the UI state, but ideally we check our local player object from the server list
-  // HACK: Start Game if button says START, else Toggle Ready
-  const btnText = uiManager.btnStart.innerText;
-  if (btnText.includes("START")) {
+  const me = lobbyPlayers.find((p) => p.isLocal);
+  if (!me) return;
+
+  if (me.isHost) {
     network.sendStartGame();
   } else {
     // Toggle Ready
-    uiManager.isLocalReady = !uiManager.isLocalReady;
-    network.sendReady(uiManager.isLocalReady);
-    uiManager.updateActionButton(false, uiManager.isLocalReady);
+    const newState = !me.isReady;
+    network.sendReady(newState);
   }
 };
 
-uiManager.onChatSend = (msg) => {
-  network.sendChat(msg);
-  // Optimistic Add
-  // uiManager.addChatMessage("You", msg, myColor);
+// FIX: Bind Color Selection
+uiManager.onColorSelect = (color) => {
+  network.sendPlayerUpdate(color);
 };
+
+// REMOVED: Auto-connect at bottom. Connection is now on-demand via Menu.
 
 // --- Network Callbacks ---
 network.onLobbyUpdate((players) => {
@@ -197,6 +157,8 @@ network.onLobbyUpdate((players) => {
       p.isLocal = true;
     }
   });
+
+  lobbyPlayers = players; // Capture state
 
   uiManager.renderPlayerList(players);
   uiManager.updateColorGrid(players);
@@ -258,9 +220,35 @@ network.onChatMessage((data) => {
   );
 });
 
-network.onGameStart((serverSeed) => {
-  console.log("Starting Game with seed:", serverSeed);
+network.onGameStart((data) => {
+  const serverSeed = data.seed;
+  const duration = data.duration || 300; // Default 5 mins
+
+  console.log("Starting Game with seed:", serverSeed, "Duration:", duration);
   uiManager.hideLobby();
+  hudManager.show();
+  hudManager.startGameTimer(duration);
+
+  // Initialize Leaderboard with 0 scores
+  gameScores = {};
+  lobbyPlayers.forEach((p) => (gameScores[p.name] = 0));
+  isRespawning = false; // Reset state
+
+  const initialLb = lobbyPlayers.map((p) => ({
+    name: p.name,
+    color: p.color,
+    score: 0,
+    isLocal: p.isLocal,
+  }));
+  hudManager.updateLeaderboard(initialLb);
+
+  // FIX: Sync myColor from Lobby State
+  const me = lobbyPlayers.find((p) => p.isLocal);
+  if (me && me.color) {
+    console.log("Setting Game Color from Lobby:", me.color);
+    myColor = me.color;
+  }
+
   startGame(serverSeed);
 });
 
@@ -286,6 +274,90 @@ network.onMessage((data) => {
       scene.remove(p.visualRoot);
       world.removeBody(p.body);
       delete remotePlayers[data.id];
+    }
+  } else if (data.type === "KILL_FEED") {
+    // { type: "KILL_FEED", killer: "A", victim: "B", feedType: "shove" }
+    if (hudManager) {
+      let killerName = data.killer;
+      let victimName = data.victim;
+      let feedMethod = data.feedType;
+
+      // FIX: Robust check for "undefined" string
+      if (killerName === "undefined") killerName = "";
+      if (victimName === "undefined") victimName = "";
+
+      const killerObj = lobbyPlayers.find((p) => p.name === killerName);
+      const victimObj = lobbyPlayers.find((p) => p.name === victimName);
+
+      // Helper to ensure CSS Hex Color
+      const toHex = (c) => {
+        if (!c) return "#333";
+        if (typeof c === "string") return c.startsWith("#") ? c : "#" + c;
+        return "#" + c.toString(16).padStart(6, "0");
+      };
+
+      // Default colors if not found
+      let kColor = killerObj ? toHex(killerObj.color) : "#333";
+      let vColor = victimObj ? toHex(victimObj.color) : "#333";
+
+      // Formatting
+      if (!killerName) {
+        // Suicide Case: "Name fell"
+        killerName = victimName;
+        kColor = vColor;
+        victimName = ""; // Hide victim slot
+        vColor = "";
+
+        if (feedMethod === "suicide") feedMethod = i18n.t("game.feed_suicided");
+      } else {
+        // Kill Case: "A shoved B"
+        if (feedMethod === "shove") feedMethod = i18n.t("game.feed_shoved");
+      }
+
+      hudManager.showKillFeed(
+        killerName,
+        kColor,
+        victimName,
+        vColor,
+        feedMethod
+      );
+
+      // FIX: Update Leaderboard Scores
+      // data.killerScore comes from backend
+      if (data.killerScore !== undefined && killerObj) {
+        gameScores[killerObj.name] = data.killerScore;
+      }
+
+      const currentLb = lobbyPlayers.map((p) => ({
+        name: p.name,
+        color: p.color,
+        score: gameScores[p.name] || 0, // Read from persistent map
+        isLocal: p.isLocal,
+      }));
+
+      // Sort Descending
+      currentLb.sort((a, b) => b.score - a.score);
+
+      hudManager.updateLeaderboard(currentLb);
+    }
+  } else if (data.type === "YOU_DIED") {
+    hudManager.showDeathScreen(data.respawnIn);
+    if (player) player.inputEnabled = false;
+  } else if (data.type === "RESPAWN_NOW") {
+    hudManager.hideDeathScreen();
+    isRespawning = false;
+    if (player) {
+      player.inputEnabled = true;
+      player.reset({ x: data.x, y: data.y, z: data.z });
+    }
+  } else if (data.type === "GAME_OVER") {
+    hudManager.showGameOver(data);
+    if (player) player.inputEnabled = false;
+
+    // Bind Reload Button
+    const btn = document.getElementById("btn-back-lobby");
+    if (btn) {
+      btn.onclick = () => window.location.reload();
     }
   } else {
     // Spawn New Remote Player
@@ -337,6 +409,29 @@ function startGame(serverSeed) {
       debugManager.setupPlayerDebug(player);
     }
 
+    const lastHitTimes = {};
+    const HIT_COOLDOWN = 500; // ms
+
+    // --- COLLISION CALLBACK ---
+    player.setOnCollide((collidedBody) => {
+      // Find which remote player owns this body
+      const targetId = Object.keys(remotePlayers).find(
+        (id) => remotePlayers[id].body === collidedBody
+      );
+
+      if (targetId) {
+        const now = Date.now();
+        if (
+          !lastHitTimes[targetId] ||
+          now - lastHitTimes[targetId] > HIT_COOLDOWN
+        ) {
+          // console.log(`[Game] Hit detected on ${targetId}`);
+          network.sendHit(targetId);
+          lastHitTimes[targetId] = now;
+        }
+      }
+    });
+
     // Force sync
     player.update(GameConfig.world.timeStep);
     cameraController.update(GameConfig.world.timeStep, true);
@@ -376,9 +471,10 @@ function animate() {
     arena.update();
 
     // Ring Out Logic
-    if (player.body.position.y < arena.config.killY) {
-      const respawnPos = arena.getRandomSpawnPoint();
-      player.reset({ x: respawnPos.x, y: 5, z: respawnPos.z });
+    if (player.body.position.y < arena.config.killY && !isRespawning) {
+      console.log("[Game] Player Died -> Respawning");
+      isRespawning = true;
+      network.sendDeath();
     }
     if (dummy && dummy.body.position.y < arena.config.killY) {
       dummy.reset({ x: p2Spawn.x, y: 5, z: p2Spawn.z });

@@ -251,6 +251,10 @@ export class Player {
   }
 
   handleCollision(e) {
+    if (this.onCollide) {
+      this.onCollide(e.body);
+    }
+
     if (!this.isBarging) return;
 
     // Get the contact normal relative to the world
@@ -272,5 +276,9 @@ export class Player {
     this.isBarging = false;
     this.bargeActiveTimer = 0;
     this.body.velocity.scale(-0.5, this.body.velocity);
+  }
+
+  setOnCollide(callback) {
+    this.onCollide = callback;
   }
 }
