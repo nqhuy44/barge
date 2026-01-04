@@ -107,6 +107,9 @@ let gameScores = {}; // Key: Player Name, Value: Score
 
 let isRespawning = false; // Prevent death loop
 
+const SEND_INTERVAL = 50; // 50ms = 20 packets/sec
+let lastSendTime = 0;
+
 const menuManager = new MenuManager();
 
 // --- MENU HANDLERS ---
@@ -259,10 +262,18 @@ network.onGameStart((data) => {
 network.onMessage((data) => {
   if (remotePlayers[data.id]) {
     // Update Existing
+    // Update Existing
     const p = remotePlayers[data.id];
-    p.body.position.set(data.x, data.y, data.z);
-    p.body.quaternion.set(data.rx, data.ry, data.rz, data.rw);
-    p.body.velocity.set(data.vx, data.vy, data.vz);
+    // p.body.position.set(data.x, data.y, data.z);
+    // p.body.quaternion.set(data.rx, data.ry, data.rz, data.rw);
+    // p.body.velocity.set(data.vx, data.vy, data.vz);
+
+    // Use Interpolation Target
+    p.setNetworkTarget(
+      { x: data.x, y: data.y, z: data.z },
+      { x: data.rx, y: data.ry, z: data.rz, w: data.rw },
+      { x: data.vx, y: data.vy, z: data.vz }
+    );
 
     // Ensure Color Sync
     if (data.color && p.color !== data.color) {
@@ -458,13 +469,17 @@ function animate() {
     player.update(dt);
     if (dummy) dummy.update(dt);
 
-    // Network Sync
-    network.sendState(
-      player.body.position,
-      player.body.quaternion,
-      player.body.velocity,
-      myColor // <--- Sending Identity
-    );
+    // Network Sync (Throttled)
+    const now = Date.now();
+    if (now - lastSendTime > SEND_INTERVAL) {
+      network.sendState(
+        player.body.position,
+        player.body.quaternion,
+        player.body.velocity,
+        myColor
+      );
+      lastSendTime = now;
+    }
 
     // Update Remote Players
     Object.values(remotePlayers).forEach((p) => p.update(dt));

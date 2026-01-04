@@ -107,7 +107,47 @@ export class Player {
     }
   }
 
+  // --- NETWORK INTERPOLATION ---
+  setNetworkTarget(pos, rot, vel) {
+    if (!this.targetPos) {
+      // First update: Snap immediately
+      this.body.position.set(pos.x, pos.y, pos.z);
+      this.body.quaternion.set(rot.x, rot.y, rot.z, rot.w);
+      this.body.velocity.set(vel.x, vel.y, vel.z);
+    }
+    this.targetPos = new CANNON.Vec3(pos.x, pos.y, pos.z);
+    this.targetRot = new CANNON.Quaternion(rot.x, rot.y, rot.z, rot.w);
+    this.targetVel = new CANNON.Vec3(vel.x, vel.y, vel.z);
+  }
+
   update(dt) {
+    // A. REMOTE PLAYER INTERPOLATION
+    if (!this.inputEnabled) {
+      if (this.targetPos) {
+        // Position Lerp (Factor 0.2 -> 20% closer per frame)
+        this.body.position.lerp(this.targetPos, 0.2, this.body.position);
+
+        // Rotation Slerp
+        this.body.quaternion.slerp(this.targetRot, 0.2, this.body.quaternion);
+
+        // Velocity (Direct copy usually fine, or lerp)
+        this.body.velocity.copy(this.targetVel);
+      }
+
+      // Visual Sync
+      this.visualRoot.position.copy(this.body.position);
+      this.visualRoot.position.y -= 1.25;
+      this.visualRoot.quaternion.copy(this.body.quaternion);
+
+      // Animation (Simple breathe)
+      this.animTime += dt;
+      const breathe = 1 + Math.sin(this.animTime * 3) * 0.03;
+      this.skinMesh.scale.set(1, breathe, 1);
+
+      return; // Skip Physics/Input Logic for Remote
+    }
+
+    // B. LOCAL PLAYER LOGIC (Existing)
     // --- 1. INPUT (Keep existing logic) ---
     const inputVector = new CANNON.Vec3(0, 0, 0);
     const lastX = this.inputStack
